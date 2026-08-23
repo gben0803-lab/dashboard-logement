@@ -35,8 +35,8 @@ POLICE = "Source Sans Pro, Segoe UI, Helvetica, Arial, sans-serif"
 
 # ---------- formatage : point d'entree unique ----------
 def fmt(valeur, genre="entier", unite=True):
-    """Applique les arrondis d'affichage du rapport. genre : taux, euro, entier,
-    surface, ratio, ratio1, decimal2."""
+    """Applique les arrondis d'affichage du rapport. genre : taux, taux0, taux2,
+    euro, entier, surface, ratio, ratio1, decimal2."""
     if valeur is None:
         return "n.d."
     try:
@@ -48,6 +48,12 @@ def fmt(valeur, genre="entier", unite=True):
 
     if genre == "taux":
         s = f"{x:.1f}".replace(".", ",")
+        return f"{s} %" if unite else s
+    if genre == "taux0":
+        s = f"{x:.0f}"
+        return f"{s} %" if unite else s
+    if genre == "taux2":
+        s = f"{x:.2f}".replace(".", ",")
         return f"{s} %" if unite else s
     if genre == "surface":
         s = f"{x:.1f}".replace(".", ",")

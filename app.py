@@ -15,7 +15,7 @@ import theme as th
 
 th.configurer_page("Accès au logement")
 
-ONGLETS = ["Vue d'ensemble", "Parc locatif privé"]
+ONGLETS = ["Vue d'ensemble", "Parc locatif privé", "Accession à la propriété"]
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
@@ -23,6 +23,8 @@ RATIO_SOCIAL_2025 = 7.34
 BORNES_EFFORT = [-np.inf, 20, 33, 50, np.inf]
 CATEGORIES_EFFORT = ["Accessible", "Modéré", "Effort important", "Insoutenable"]
 SEUIL_EFFORT = 33
+SURFACE_FAMILIALE = 72
+VILLE_ATYPIQUE = "Brest"
 
 
 # ---------- filtres communs, rendus dans le corps de l'onglet ----------
@@ -146,7 +148,7 @@ entre demandes et attributions est passé de **{th.fmt(RATIO_SOCIAL_2016, 'ratio
         """)
         st.info(
             f"Périmètre affiché : **{perimetre}** · profil **{profil.lower()}**. "
-            "Les filtres de la barre latérale s'appliquent à l'ensemble de la page.",
+            "Les filtres en tête d'onglet s'appliquent à l'ensemble de la page.",
             icon="ℹ️")
 
     # evolution de la capacite d'achat
@@ -480,6 +482,217 @@ def tableau_villes(vil, deps, modeste):
         "pour un ménage modeste — niveau qui rend l'accès arithmétiquement impossible.")
 
 
+# ---------- onglet 3 : accession a la propriete ----------
+def accession():
+    th.bandeau(
+        "Accès à la propriété",
+        "À revenu constant, la capacité d'acquisition s'est contractée d'un quart en quatre ans. "
+        "La perte vient du crédit, pas des prix.")
+
+    com = dl.communes()
+    ser = dl.series()
+    dec = dl.decomposition()
+    vil = dl.villes()
+
+    f1, f2 = st.columns([2, 1], gap="medium")
+    deps = selecteur_departements(f1, "acc")
+    vue_villes = f2.radio("Vue complémentaire", ["Grandes villes", "Aucune"], key="vue_acc")
+
+    com_f = appliquer_departements(com, deps)
+    fiable = com_f[com_f.fiable_prix == True].dropna(subset=["surface_financable"])
+
+    # indicateurs
+    st.subheader("La capacité d'acquisition aujourd'hui")
+    nat = ser[ser.perimetre == "national"].sort_values("annee")
+    d1 = dec[dec.ordre == "prix_puis_taux"].set_index("etape")
+    d2 = dec[dec.ordre == "taux_puis_prix"].set_index("etape")
+    perte = nat.surface_financable.iloc[-1] - nat.surface_financable.iloc[0]
+
+    c = st.columns(5)
+    with c[0]:
+        th.kpi("Surface finançable médiane", th.fmt(fiable.surface_financable.median(), "surface"),
+               f"{th.fmt(len(fiable))} communes au prix fiable")
+    with c[1]:
+        sous = 100 * (fiable.surface_financable < SURFACE_FAMILIALE).mean() if len(fiable) else np.nan
+        th.kpi(f"Sous {SURFACE_FAMILIALE} m²", th.fmt(sous, "taux"),
+               "ne peut financer un logement familial", critique=True)
+    with c[2]:
+        th.kpi("Perte depuis 2021", th.fmt(abs(perte), "surface"),
+               f"soit {th.fmt(100 * perte / nat.surface_financable.iloc[0], 'taux')} "
+               "à revenu constant", critique=True)
+    with c[3]:
+        th.kpi("Part imputable au crédit",
+               f"{th.fmt(d1.loc[3, 'part_pct'], 'taux0', unite=False)} à "
+               f"{th.fmt(d2.loc[2, 'part_pct'], 'taux0')}",
+               "selon l'ordre de décomposition")
+    with c[4]:
+        th.kpi("Taux d'emprunt 20 ans", th.fmt(nat.taux_pct.iloc[-1], "taux2"),
+               f"contre {th.fmt(nat.taux_pct.iloc[0], 'taux2')} en 2021")
+
+    # geographie
+    st.subheader("Surface finançable par département")
+    graphique_surface_departements(fiable)
+
+    # serie et decomposition
+    gauche, droite = st.columns(2, gap="large")
+    with gauche:
+        st.subheader("Évolution 2021-2025")
+        graphique_serie_accession(nat)
+    with droite:
+        st.subheader("D'où vient la perte ?")
+        graphique_decomposition(dec)
+
+    if vue_villes == "Grandes villes":
+        st.subheader("Les grandes villes")
+        tableau_villes_accession(vil, deps)
+
+    # export
+    st.subheader("Détail communal")
+    colonnes = ["insee_c", "libgeo", "dep", "prix_m2_tous", "n_ventes_tous",
+                "revenu_menage_proxy", "surface_financable", "categorie_surface"]
+    detail = fiable[colonnes].copy()
+    apercu = detail.head(200).copy()
+    apercu["prix_m2_tous"] = apercu.prix_m2_tous.map(lambda v: th.fmt(v, "euro"))
+    apercu["revenu_menage_proxy"] = apercu.revenu_menage_proxy.map(lambda v: th.fmt(v, "euro"))
+    apercu["surface_financable"] = apercu.surface_financable.map(lambda v: th.fmt(v, "surface"))
+    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
+               "L'export contient l'intégralité du périmètre filtré.")
+    th.bouton_csv(detail, "qce_surface_financable.csv")
+
+    th.source(
+        "Sources : DVF 2021-2025 × INSEE Filosofi × Observatoire Crédit Logement / CSA. "
+        "Hypothèses : 35 % d'endettement maximal, 240 mois, assurance 0,30 % par an, "
+        "apport 10 %, frais de mutation 8 %. Le revenu est figé sur un millésime unique : la "
+        "série isole l'effet des prix et des taux, elle ne mesure pas une perte de niveau de vie.")
+
+
+def graphique_surface_departements(fiable):
+    if fiable.empty:
+        st.warning("Aucune commune au prix fiable sur ce périmètre.")
+        return
+    noms = dl.noms_departements()
+    d = (fiable.groupby("dep").surface_financable.agg(["median", "count"])
+               .reset_index().rename(columns={"median": "surface", "count": "n"}))
+    d = d[d.n >= 3].sort_values("surface", ascending=False)
+    d["nom"] = d.dep.map(noms).fillna(d.dep)
+
+    couleurs = [th.ROUGE if v < SURFACE_FAMILIALE else th.BLEU for v in d.surface]
+    fig = go.Figure(go.Bar(
+        x=d.surface, y=d.nom, orientation="h", marker_color=couleurs,
+        customdata=np.stack([d.dep, d.n], axis=-1),
+        hovertemplate="<b>%{y}</b> (%{customdata[0]})<br>%{x:.1f} m²<br>"
+                      "%{customdata[1]} communes<extra></extra>"))
+    fig.add_vline(x=SURFACE_FAMILIALE, line=dict(color=th.BLEU_FONCE, dash="dash", width=1.5))
+    fig.update_layout(xaxis=dict(title="Surface finançable médiane (m²)"),
+                      yaxis=dict(title="", tickfont=dict(size=9)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, max(420, 16 * len(d)),
+                                   "Surface finançable médiane par département, 2025"),
+        width="stretch")
+    st.caption(
+        f"Médiane des surfaces communales, départements documentés sur au moins 3 communes. "
+        f"La ligne marque les {SURFACE_FAMILIALE} m² du logement familial de référence. "
+        f"{int((d.surface < SURFACE_FAMILIALE).sum())} département(s) en dessous.")
+
+
+def graphique_serie_accession(nat):
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=nat.annee, y=nat.surface_financable, name="Surface finançable",
+        marker_color=[th.ROUGE if a == nat.annee.max() else th.BLEU for a in nat.annee],
+        text=[th.fmt(v, "surface") for v in nat.surface_financable],
+        textposition="outside", textfont=dict(color=th.BLEU_FONCE),
+        customdata=np.stack([nat.taux_pct, nat.prix_m2_median, nat.n_communes], axis=-1),
+        hovertemplate="<b>%{x}</b><br>%{y:.1f} m²<br>Taux %{customdata[0]:.2f} %<br>"
+                      "Prix médian %{customdata[1]:.0f} €/m²<br>"
+                      "%{customdata[2]:.0f} communes fiables<extra></extra>"))
+    fig.add_trace(go.Scatter(
+        x=nat.annee, y=nat.taux_pct, name="Taux d'emprunt 20 ans (%)", yaxis="y2",
+        mode="lines+markers", line=dict(color=th.BLEU_FONCE, width=2.5), marker=dict(size=8),
+        hovertemplate="Taux %{y:.2f} %<extra></extra>"))
+    fig.update_layout(
+        yaxis=dict(title="m² finançables", range=[0, nat.surface_financable.max() * 1.22]),
+        yaxis2=dict(title="Taux (%)", overlaying="y", side="right", showgrid=False,
+                    range=[0, nat.taux_pct.max() * 1.6]))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 380, "Surface finançable et taux d'emprunt, 2021-2025"),
+        width="stretch")
+    st.caption(
+        "Le prix médian au m² est quasiment stable depuis 2023 "
+        f"({th.fmt(nat.prix_m2_median.iloc[2], 'euro')} puis "
+        f"{th.fmt(nat.prix_m2_median.iloc[-1], 'euro')}), quand le taux passe de "
+        f"{th.fmt(nat.taux_pct.iloc[0], 'taux2')} à {th.fmt(nat.taux_pct.iloc[-1], 'taux2')}.")
+
+
+def graphique_decomposition(dec):
+    d1 = dec[dec.ordre == "prix_puis_taux"].set_index("etape")
+    d2 = dec[dec.ordre == "taux_puis_prix"].set_index("etape")
+    etapes = ["2021\nprix et taux 2021", "effet PRIX\nprix 2025, taux 2021",
+              "effet TAUX\nprix et taux 2025"]
+    vals = [d1.loc[1, "surface_m2"], d1.loc[2, "surface_m2"], d1.loc[3, "surface_m2"]]
+
+    fig = go.Figure(go.Bar(
+        x=etapes, y=vals, marker_color=[th.ECHELLE_BLEUE[2], th.BLEU, th.ROUGE],
+        text=[th.fmt(v, "surface") for v in vals], textposition="outside",
+        textfont=dict(color=th.BLEU_FONCE),
+        hovertemplate="%{x}<br>%{y:.1f} m²<extra></extra>"))
+    fig.add_annotation(x=0.5, y=(vals[0] + vals[1]) / 2 + 8, showarrow=False,
+                       text=f"<b>{th.fmt(d1.loc[2, 'effet_m2'], 'surface')}</b>",
+                       font=dict(color=th.BLEU, size=13))
+    fig.add_annotation(x=1.5, y=(vals[1] + vals[2]) / 2 + 8, showarrow=False,
+                       text=f"<b>{th.fmt(d1.loc[3, 'effet_m2'], 'surface')}</b>",
+                       font=dict(color=th.ROUGE, size=13))
+    fig.update_layout(yaxis=dict(title="m² finançables", range=[0, vals[0] * 1.25]),
+                      xaxis=dict(title="", tickfont=dict(size=10)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 380, "Décomposition de la perte entre prix et taux"),
+        width="stretch")
+    st.caption(
+        f"Panel constant de {th.fmt(dec.n_communes_panel.iloc[0])} communes au prix fiable en "
+        f"2021 et en 2025 — d'où une base de {th.fmt(vals[0], 'surface')}, inférieure aux "
+        f"119,1 m² de la série nationale qui porte sur 16 947 communes. "
+        f"Les conditions de crédit expliquent "
+        f"{th.fmt(d1.loc[3, 'part_pct'], 'taux0', unite=False)} à "
+        f"{th.fmt(d2.loc[2, 'part_pct'], 'taux0')} de la contraction selon l'ordre retenu.")
+
+
+def tableau_villes_accession(vil, deps):
+    v = vil.dropna(subset=["surface_financable"]).copy()
+    if deps:
+        v = v[v.dep.isin(deps)]
+    if v.empty:
+        st.info("Aucune ville de plus de 100 000 habitants dans la sélection.")
+        return
+    v = v.sort_values("surface_financable")
+    affichage = pd.DataFrame({
+        "Ville": v.ville,
+        "Dép.": v.dep,
+        "Prix appartement": v.prix_m2_appart.map(lambda x: th.fmt(x, "euro")),
+        "Revenu ménage": v.revenu_menage.map(lambda x: th.fmt(x, "euro")),
+        "Surface finançable": v.surface_financable.map(lambda x: th.fmt(x, "surface")),
+        "2021": v.surface_2021.map(lambda x: th.fmt(x, "surface")),
+        "2025": v.surface_2025.map(lambda x: th.fmt(x, "surface")),
+        "Recul": v.delta_m2.map(lambda x: th.fmt(x, "surface")),
+    })
+    st.dataframe(affichage, width="stretch", hide_index=True, height=420)
+
+    brest = vil[vil.ville == VILLE_ATYPIQUE]
+    if not brest.empty:
+        b = brest.iloc[0]
+        st.warning(
+            f"**{VILLE_ATYPIQUE} — valeur atypique, écartée de toute communication.** "
+            f"Le recul affiché, {th.fmt(abs(b.delta_m2), 'surface')}, est un **artefact de "
+            f"composition** : l'appartement médian y passe de 2 pièces et 52 m² en 2021 à "
+            f"3 pièces et 60 m² en 2025. Le marché observé a changé de nature, pas seulement "
+            f"de prix. Ce chiffre ne mesure pas une perte de pouvoir d'achat.",
+            icon="⚠️")
+    st.caption(
+        "Communes de plus de 100 000 habitants, classées par surface finançable croissante. "
+        "Ces valeurs reposent sur le **prix de l'appartement**, non sur le prix agrégé : "
+        "dans les villes denses, l'appartement est le marché.")
+
+
 # ---------- navigation ----------
 def main():
     st.sidebar.markdown("### Que Choisir Ensemble")
@@ -489,7 +702,8 @@ def main():
     if len(ONGLETS) == 1:
         vue_ensemble()
     else:
-        for onglet, contenu in zip(st.tabs(ONGLETS), [vue_ensemble, parc_locatif]):
+        for onglet, contenu in zip(st.tabs(ONGLETS),
+                                   [vue_ensemble, parc_locatif, accession]):
             with onglet:
                 contenu()
 
