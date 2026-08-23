@@ -15,7 +15,8 @@ import theme as th
 
 th.configurer_page("Accès au logement")
 
-ONGLETS = ["Vue d'ensemble", "Parc locatif privé", "Accession à la propriété"]
+ONGLETS = ["Vue d'ensemble", "Parc locatif privé", "Accession à la propriété",
+           "Parc social et cumul"]
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
@@ -25,6 +26,8 @@ CATEGORIES_EFFORT = ["Accessible", "Modéré", "Effort important", "Insoutenable
 SEUIL_EFFORT = 33
 SURFACE_FAMILIALE = 72
 VILLE_ATYPIQUE = "Brest"
+SEUIL_SURFACE_CUMUL = 40
+SEUILS_SENSIBILITE = (35, 40, 45)
 
 
 # ---------- filtres communs, rendus dans le corps de l'onglet ----------
@@ -708,6 +711,235 @@ def tableau_villes_accession(vil, deps):
         "dans les villes denses, l'appartement est le marché.")
 
 
+# ---------- onglet 4 : parc social et cumul des exclusions ----------
+def parc_social():
+    th.bandeau(
+        "Parc social et cumul des exclusions",
+        "Le parc social devrait absorber ce que le marché privé rejette. Il est lui-même saturé. "
+        "Là où les trois portes se ferment ensemble, il ne reste aucune solution.")
+
+    com = dl.communes()
+    ten = dl.tension()
+
+    f1, f2, f3 = st.columns([2, 1, 1], gap="medium")
+    deps = selecteur_departements(f1, "soc")
+    annee = f2.select_slider("Année de la tension", options=list(range(2015, 2026)),
+                             value=2025, key="annee_soc")
+    profil = f3.radio("Profil de ménage", ["Ménage médian", "Ménage modeste (1er décile)"],
+                      key="profil_soc")
+
+    modeste = profil.startswith("Ménage modeste")
+    col_triple = "triple_peine_d1" if modeste else "triple_peine_median"
+    col_tension = f"tension_{annee}"
+
+    com_f = appliquer_departements(com, deps)
+    ten_f = appliquer_departements(ten, deps)
+    seuil_tension = ten[col_tension].median()
+
+    trois = com_f[com_f.n_legs_dispo == 3]
+    if modeste:
+        trois = trois[trois.triple_peine_d1.notna()]
+        th.perimetre_modeste(int(com_f[com_f.n_legs_dispo == 3].triple_peine_d1.notna().sum()))
+    n_triple = int(trois[col_triple].fillna(0).sum())
+
+    # indicateurs
+    st.subheader("Le parc social ne joue plus son rôle d'amortisseur")
+    c = st.columns(5)
+    with c[0]:
+        th.kpi("Tension médiane", th.fmt(ten_f[col_tension].median(), "ratio"),
+               f"demandes par attribution · {annee}")
+    with c[1]:
+        th.kpi("Ratio national", th.fmt(RATIO_SOCIAL_2025, "ratio"),
+               f"contre {th.fmt(RATIO_SOCIAL_2016, 'ratio')} en 2016", critique=True)
+    with c[2]:
+        th.kpi("Communes en triple peine", th.fmt(n_triple, "entier"),
+               f"sur {th.fmt(len(trois))} à trois indicateurs", critique=True)
+    with c[3]:
+        part = 100 * n_triple / len(trois) if len(trois) else np.nan
+        th.kpi("Part des communes", th.fmt(part, "taux"),
+               "parmi celles pleinement documentées")
+    with c[4]:
+        g = trois.groupby("dep")[col_triple].sum()
+        epargnes = g[g == 0].index
+        metro = int(sum(1 for d in epargnes if not str(d).startswith("97")))
+        th.kpi("Départements épargnés", th.fmt(len(epargnes), "entier"),
+               f"aucune commune en triple peine · dont {th.fmt(metro)} en métropole")
+
+    # seuils et disponibilite
+    gauche, droite = st.columns(2, gap="large")
+    with gauche:
+        st.subheader("Les trois seuils retenus")
+        st.markdown(f"""
+| Voie d'accès | Indicateur | Seuil de défaillance |
+|---|---|---|
+| Location privée | taux d'effort, logement familial | **supérieur à {SEUIL_EFFORT} %** |
+| Accession | surface finançable | **inférieure à {SEUIL_SURFACE_CUMUL} m²** |
+| Parc social | demandes par attribution | **supérieure à {th.fmt(seuil_tension, 'ratio')}** |
+""")
+        st.caption(
+            "Chaque voie est déclarée défaillante ou non, et l'on compte les défaillances. "
+            "Un score pondéré supposerait d'arbitrer entre trois grandeurs hétérogènes — "
+            "un taux, une surface, un ratio — et toute pondération serait attaquable. "
+            f"Le seuil du parc social est la médiane nationale des ratios départementaux de "
+            f"{annee}.")
+    with droite:
+        st.subheader("Disponibilité des indicateurs")
+        graphique_disponibilite(com_f)
+
+    # geographie
+    st.subheader("Part des communes en triple peine, par département")
+    graphique_triple_peine(trois, col_triple, profil)
+
+    # evolution et sensibilite
+    bas_g, bas_d = st.columns(2, gap="large")
+    with bas_g:
+        st.subheader("Évolution de la tension, 2015-2025")
+        graphique_tension_serie(ten_f, deps)
+    with bas_d:
+        st.subheader("Sensibilité aux seuils")
+        graphique_sensibilite(com_f, ten)
+
+    # export
+    st.subheader("Détail communal")
+    colonnes = ["insee_c", "libgeo", "dep", "effort_median_familial", "effort_d1_familial",
+                "surface_financable", "tension_2025", "n_legs_dispo",
+                "triple_peine_median", "triple_peine_d1"]
+    detail = com_f[colonnes].copy()
+    apercu = detail[detail.n_legs_dispo == 3].head(200).copy()
+    for c_ in ("effort_median_familial", "effort_d1_familial"):
+        apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "taux"))
+    apercu["surface_financable"] = apercu.surface_financable.map(lambda v: th.fmt(v, "surface"))
+    apercu["tension_2025"] = apercu.tension_2025.map(lambda v: th.fmt(v, "ratio"))
+    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.caption(f"Aperçu des communes à trois indicateurs. L'export contient les "
+               f"{th.fmt(len(detail))} communes du périmètre filtré, complétude comprise.")
+    th.bouton_csv(detail, "qce_cumul_exclusions.csv")
+
+    th.source(
+        "Sources : SNE 2015-2025 (demandes actives et attributions) × ANIL × DVF × Filosofi. "
+        "Le ratio national est le rapport de la somme des demandes à la somme des attributions ; "
+        "il diffère de la médiane des ratios départementaux, un ratio de ratios n'étant pas un "
+        "ratio.")
+
+
+def graphique_disponibilite(com_f):
+    vc = com_f.n_legs_dispo.value_counts().reindex([3, 2, 1, 0]).fillna(0)
+    libelles = ["Trois indicateurs", "Deux indicateurs", "Un seul indicateur", "Aucun indicateur"]
+    couleurs = [th.BLEU, th.ECHELLE_BLEUE[3], th.ECHELLE_BLEUE[2], th.GRIS]
+    total = len(com_f)
+    fig = go.Figure(go.Bar(
+        y=libelles, x=vc.values, orientation="h", marker_color=couleurs,
+        text=[f"{th.fmt(v)}  ({th.fmt(100 * v / total, 'taux')})" for v in vc.values],
+        textposition="outside", textfont=dict(color=th.BLEU_FONCE, size=11),
+        hovertemplate="%{y}<br>%{x:,.0f} communes<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="Communes", range=[0, vc.max() * 1.42]),
+                      yaxis=dict(title="", autorange="reversed"))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 300, f"Sur {th.fmt(total)} communes documentées"),
+        width="stretch")
+    st.caption(
+        "Le croisement n'est possible que sur les communes disposant des trois indicateurs. "
+        "L'accession manque le plus souvent : elle exige au moins dix ventes dans l'année, "
+        "un problème de petit échantillon plutôt que d'absence de marché.")
+
+
+def graphique_triple_peine(trois, col_triple, profil):
+    if trois.empty:
+        st.warning("Aucune commune à trois indicateurs sur ce périmètre.")
+        return
+    noms = dl.noms_departements()
+    g = (trois.groupby("dep")[col_triple].agg(["sum", "count"]).reset_index())
+    g = g[g["count"] >= 3]
+    g["part"] = 100 * g["sum"] / g["count"]
+    g = g.sort_values("part", ascending=False)
+    g["nom"] = g.dep.map(noms).fillna(g.dep)
+    total = len(g)
+    tout = st.checkbox(f"Afficher les {total} départements", key="tous_dep_peine")
+    if not tout and total > 20:
+        g = g.head(20)
+        tronque = True
+    else:
+        tronque = False
+
+    couleurs = [th.ROUGE if v > 0 else th.GRIS for v in g.part]
+    fig = go.Figure(go.Bar(
+        x=g.part, y=g.nom, orientation="h", marker_color=couleurs,
+        customdata=np.stack([g.dep, g["sum"], g["count"]], axis=-1),
+        hovertemplate="<b>%{y}</b> (%{customdata[0]})<br>%{x:.1f} %<br>"
+                      "%{customdata[1]:.0f} communes sur %{customdata[2]:.0f}<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="Part des communes en triple peine (%)"),
+                      yaxis=dict(title="", autorange="reversed", tickfont=dict(size=9)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, max(400, 20 * len(g)),
+                                   f"Cumul des trois défaillances · {profil.lower()}"),
+        width="stretch")
+    st.caption(
+        "Départements documentés sur au moins 3 communes à trois indicateurs, classés par part "
+        "décroissante. "
+        + (f"Affichage des 20 premiers sur {total}." if tronque
+           else f"{total} départements affichés.")
+        + " Le phénomène est urbain et concentré, non diffus sur le territoire.")
+
+
+def graphique_tension_serie(ten_f, deps):
+    annees = list(range(2015, 2026))
+    colonnes = [f"tension_{a}" for a in annees]
+    med = [ten_f[c].median() for c in colonnes]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=annees, y=med, mode="lines+markers", name="Médiane départementale",
+        line=dict(color=th.BLEU, width=3), marker=dict(size=8),
+        hovertemplate="<b>%{x}</b><br>%{y:.2f} demandes par attribution<extra></extra>"))
+    if deps:
+        noms = dl.noms_departements()
+        for d in deps[:5]:
+            ligne = ten_f[ten_f.dep == d]
+            if ligne.empty:
+                continue
+            fig.add_trace(go.Scatter(
+                x=annees, y=[ligne[c].iloc[0] for c in colonnes], mode="lines",
+                name=noms.get(d, d), line=dict(width=1.8, dash="dot"),
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="", dtick=1),
+                      yaxis=dict(title="Demandes par attribution", rangemode="tozero"))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 360, "Tension du parc social, médiane départementale"),
+        width="stretch")
+    st.caption(
+        f"Au niveau national, le rapport entre demandes actives et attributions passe de "
+        f"{th.fmt(RATIO_SOCIAL_2016, 'ratio')} en 2016 à {th.fmt(RATIO_SOCIAL_2025, 'ratio')} "
+        f"en 2025. La médiane départementale, plus basse, décrit le département type et non "
+        f"le ménage type.")
+
+
+def graphique_sensibilite(com_f, ten):
+    seuil = ten.tension_2025.median()
+    base = com_f[(com_f.n_legs_dispo == 3) & com_f.effort_d1_familial.notna()]
+    valeurs = []
+    for s in SEUILS_SENSIBILITE:
+        n = int(((base.effort_d1_familial > SEUIL_EFFORT)
+                 & (base.surface_financable < s)
+                 & (base.tension_2025 > seuil)).sum())
+        valeurs.append(n)
+    couleurs = [th.ECHELLE_BLEUE[2], th.BLEU, th.ECHELLE_BLEUE[2]]
+    fig = go.Figure(go.Bar(
+        x=[f"< {s} m²" for s in SEUILS_SENSIBILITE], y=valeurs, marker_color=couleurs,
+        text=[th.fmt(v) for v in valeurs], textposition="outside",
+        textfont=dict(color=th.BLEU_FONCE),
+        hovertemplate="Seuil %{x}<br>%{y} communes<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="Seuil de surface finançable", type="category"),
+                      yaxis=dict(title="Communes en triple peine",
+                                 range=[0, max(valeurs) * 1.25]))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 360, "Effet du seuil de surface, ménage modeste"),
+        width="stretch")
+    st.caption(
+        f"La surface est le seuil le plus sensible : de {th.fmt(valeurs[0])} à "
+        f"{th.fmt(valeurs[-1])} communes selon qu'on retient 35 ou 45 m². C'est pourquoi le "
+        f"rapport publie une fourchette de 160 à 430, jamais un chiffre unique. "
+        f"Le seuil retenu est {SEUIL_SURFACE_CUMUL} m².")
+
+
 # ---------- navigation ----------
 def main():
     st.sidebar.markdown("### Que Choisir Ensemble")
@@ -718,7 +950,7 @@ def main():
         vue_ensemble()
     else:
         for onglet, contenu in zip(st.tabs(ONGLETS),
-                                   [vue_ensemble, parc_locatif, accession]):
+                                   [vue_ensemble, parc_locatif, accession, parc_social]):
             with onglet:
                 contenu()
 
