@@ -20,7 +20,9 @@ def _lire(nom):
         st.error(f"Fichier absent : data_dashboard/{nom}. "
                  "Lancer `python pipeline/build_dashboard_data.py` avant de démarrer.")
         st.stop()
-    return pd.read_csv(chemin, dtype=TYPES_GEO, low_memory=False)
+    entetes = pd.read_csv(chemin, nrows=0).columns
+    types = {c: t for c, t in TYPES_GEO.items() if c in entetes}
+    return pd.read_csv(chemin, dtype=types, low_memory=False)
 
 
 @st.cache_data(show_spinner=False)
@@ -60,8 +62,8 @@ def decomposition():
 
 @st.cache_data(show_spinner=False)
 def qualite_national():
-    d = _lire("qualite_national.csv").set_index("cle")
-    return d
+    d = _lire("qualite_national.csv")
+    return {str(c): float(v) for c, v in zip(d["cle"], d["valeur"])}
 
 
 @st.cache_data(show_spinner=False)

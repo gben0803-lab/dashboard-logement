@@ -950,7 +950,7 @@ def qualite_parc():
         "et une quatrième, absente du diagnostic remis au consommateur : le confort d'été.")
 
     qua = dl.qualite()
-    nat = dl.qualite_national()
+    qnat = dl.qualite_national()
     con = dl.confort()
     com = dl.communes()
 
@@ -978,8 +978,8 @@ def qualite_parc():
     with c[2]:
         part = qua_f.part_cout_revenu.median()
         th.kpi("Part du revenu", th.fmt(part, "taux"),
-               f"médiane · Q1 {th.fmt(nat.valeur['part_revenu_q1'], 'taux')} · "
-               f"Q3 {th.fmt(nat.valeur['part_revenu_q3'], 'taux')}")
+               f"médiane · Q1 {th.fmt(qnat['part_revenu_q1'], 'taux')} · "
+               f"Q3 {th.fmt(qnat['part_revenu_q3'], 'taux')}")
     with c[3]:
         s = qua_f.dropna(subset=["taux_suroccupation", "nb_rp"])
         v = (s.taux_suroccupation * s.nb_rp).sum() / s.nb_rp.sum() if len(s) else np.nan
