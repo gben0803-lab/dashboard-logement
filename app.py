@@ -15,22 +15,25 @@ import theme as th
 
 th.configurer_page("Accès au logement")
 
-ONGLETS = ["Vue d'ensemble"]
+ONGLETS = ["Vue d'ensemble", "Parc locatif privé"]
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
 
+BORNES_EFFORT = [-np.inf, 20, 33, 50, np.inf]
+CATEGORIES_EFFORT = ["Accessible", "Modéré", "Effort important", "Insoutenable"]
+SEUIL_EFFORT = 33
 
-# ---------- filtres communs ----------
-def filtres_departements(cle):
+
+# ---------- filtres communs, rendus dans le corps de l'onglet ----------
+def selecteur_departements(conteneur, cle):
     noms = dl.noms_departements()
     codes = sorted(noms, key=lambda c: (len(c), c))
     libelles = {c: f"{c} — {noms.get(c, '')}".strip(" —") for c in codes}
-    choix = st.sidebar.multiselect(
+    return conteneur.multiselect(
         "Départements", options=codes, default=[],
         format_func=lambda c: libelles[c], key=f"dep_{cle}",
-        help="Aucune sélection = France entière")
-    return choix
+        placeholder="France entière")
 
 
 def appliquer_departements(df, choix, colonne="dep"):
@@ -51,13 +54,12 @@ def vue_ensemble():
     qua = dl.qualite()
     ser = dl.series()
 
-    deps = filtres_departements("vue")
-    annee = st.sidebar.select_slider(
-        "Année de la tension du parc social", options=list(range(2015, 2026)),
-        value=2025, key="annee_vue")
-    profil = st.sidebar.radio(
-        "Profil de ménage", ["Ménage médian", "Ménage modeste (1er décile)"],
-        key="profil_vue")
+    f1, f2, f3 = st.columns([2, 1, 1], gap="medium")
+    deps = selecteur_departements(f1, "vue")
+    annee = f2.select_slider("Année de la tension du parc social",
+                             options=list(range(2015, 2026)), value=2025, key="annee_vue")
+    profil = f3.radio("Profil de ménage",
+                      ["Ménage médian", "Ménage modeste (1er décile)"], key="profil_vue")
 
     com_f = appliquer_departements(com, deps)
     ten_f = appliquer_departements(ten, deps)
@@ -68,6 +70,9 @@ def vue_ensemble():
     col_triple = "triple_peine_d1" if modeste else "triple_peine_median"
 
     perimetre = "France entière" if not deps else f"{len(deps)} département(s)"
+    if modeste:
+        th.perimetre_modeste(int(com_f[com_f.fiable_loyer_familial == True]
+                                 .effort_d1_familial.notna().sum()))
 
     # indicateurs cles
     st.subheader("Les chiffres clés")
@@ -201,7 +206,10 @@ def graphique_vacance_tension(ten, qua, deps, annee):
     fig.add_hline(y=med_ten, line=dict(color=th.GRIS, dash="dash", width=1.5))
     fig.update_xaxes(title="Logements vacants (%)")
     fig.update_yaxes(title=f"Demandes par attribution ({annee})")
-    st.plotly_chart(th.mise_en_forme_graphique(fig, 430), width="stretch")
+    st.plotly_chart(
+        th.mise_en_forme_graphique(
+            fig, 430, f"Vacance des logements et tension du parc social, {annee}"),
+        width="stretch")
     st.caption(
         f"Médianes nationales : {th.fmt(med_vac, 'taux')} de logements vacants et "
         f"{th.fmt(med_ten, 'ratio1')} demandes par attribution. "
@@ -228,7 +236,10 @@ def graphique_serie(ser):
                    range=[0, n.surface_financable.max() * 1.2]),
         yaxis2=dict(title="Taux d'emprunt (%)", overlaying="y", side="right",
                     showgrid=False, range=[0, n.taux_pct.max() * 1.6]))
-    st.plotly_chart(th.mise_en_forme_graphique(fig, 360), width="stretch")
+    st.plotly_chart(
+        th.mise_en_forme_graphique(
+            fig, 360, "Surface finançable médiane et taux d'emprunt sur 20 ans"),
+        width="stretch")
     perte = n.surface_financable.iloc[-1] - n.surface_financable.iloc[0]
     st.caption(
         f"À revenu constant, la surface finançable médiane recule de "
@@ -276,6 +287,199 @@ def synthese_departementale(ten, qua, com, annee, col_effort, col_triple):
     return affichage.sort_values("Dép.").reset_index(drop=True)
 
 
+# ---------- onglet 2 : parc locatif prive ----------
+def parc_locatif():
+    th.bandeau(
+        "Accès au parc locatif privé",
+        "Le même logement, au même loyer, se révèle accessible à une partie de la population "
+        "et hors de portée pour une autre. La difficulté n'est pas territoriale, elle est "
+        "distributive.")
+
+    com = dl.communes()
+    vil = dl.villes()
+
+    f1, f2, f3 = st.columns([2, 1, 1], gap="medium")
+    deps = selecteur_departements(f1, "loc")
+    profil = f2.radio("Profil de ménage",
+                      ["Ménage médian", "Ménage modeste (1er décile)"], key="profil_loc")
+    segment = f3.radio("Segment de logement",
+                       ["Logement familial (3 pièces et +)", "Petit logement (1-2 pièces)"],
+                       key="segment_loc")
+
+    modeste = profil.startswith("Ménage modeste")
+    familial = segment.startswith("Logement familial")
+    suffixe = "familial" if familial else "petit"
+    col_effort = f"effort_{'d1' if modeste else 'median'}_{suffixe}"
+    col_fiable = f"fiable_loyer_{suffixe}"
+
+    com_f = appliquer_departements(com, deps)
+    base = com_f[com_f[col_fiable] == True].dropna(subset=[col_effort])
+    n_modeste = int(com_f[com_f[col_fiable] == True][f"effort_d1_{suffixe}"].notna().sum())
+    th.perimetre_modeste(n_modeste)
+
+    # indicateurs des deux profils, cote a cote
+    st.subheader("Le même loyer, deux capacités contributives")
+    fiable = com_f[com_f[col_fiable] == True]
+    med = fiable.dropna(subset=[f"effort_median_{suffixe}"])
+    d1 = fiable.dropna(subset=[f"effort_d1_{suffixe}"])
+    loyer = fiable[f"loyer_{suffixe}"].median()
+
+    c = st.columns(4)
+    with c[0]:
+        th.kpi("Loyer mensuel médian", th.fmt(loyer, "euro"),
+               f"{segment.split(' (')[0].lower()}")
+    with c[1]:
+        v = med[f"effort_median_{suffixe}"].median()
+        th.kpi("Effort · ménage médian", th.fmt(v, "taux"),
+               f"{th.fmt(len(med))} communes", critique=bool(v and v > SEUIL_EFFORT))
+    with c[2]:
+        v = d1[f"effort_d1_{suffixe}"].median()
+        th.kpi("Effort · ménage modeste", th.fmt(v, "taux"),
+               f"{th.fmt(len(d1))} communes", critique=bool(v and v > SEUIL_EFFORT))
+    with c[3]:
+        part = 100 * (d1[f"effort_d1_{suffixe}"] > SEUIL_EFFORT).mean() if len(d1) else np.nan
+        n_sup = int((d1[f"effort_d1_{suffixe}"] > SEUIL_EFFORT).sum()) if len(d1) else 0
+        th.kpi("Communes au-delà de 33 %", th.fmt(part, "taux"),
+               f"{th.fmt(n_sup)} sur {th.fmt(len(d1))} · ménage modeste", critique=True)
+
+    st.caption(
+        f"Le loyer médian est identique pour les deux profils : "
+        f"{th.fmt(loyer, 'euro')} par mois. Seule la capacité contributive change. "
+        "La totalité de l'écart d'effort tient au seul niveau de revenu.")
+
+    # repartition par categorie d'effort
+    st.subheader("Répartition des communes par catégorie d'effort")
+    graphique_categories(fiable, suffixe)
+
+    # classement departemental
+    gauche, droite = st.columns([3, 2], gap="large")
+    with gauche:
+        st.subheader("Taux d'effort par département")
+        graphique_departements(base, col_effort, profil, segment)
+    with droite:
+        st.subheader("Les grandes villes")
+        tableau_villes(vil, deps, modeste)
+
+    # export
+    st.subheader("Détail communal")
+    colonnes = ["insee_c", "libgeo", "dep", f"loyer_{suffixe}",
+                "revenu_menage_proxy", "revenu_menage_d1",
+                f"effort_median_{suffixe}", f"effort_d1_{suffixe}"]
+    detail = base[colonnes].copy()
+    apercu = detail.head(200).copy()
+    for c_ in (f"effort_median_{suffixe}", f"effort_d1_{suffixe}"):
+        apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "taux"))
+    for c_ in (f"loyer_{suffixe}", "revenu_menage_proxy", "revenu_menage_d1"):
+        apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "euro"))
+    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
+               "L'export contient l'intégralité du périmètre filtré.")
+    th.bouton_csv(detail, f"qce_effort_locatif_{suffixe}.csv")
+
+    th.source(
+        "Sources : ANIL carte des loyers 2025 × INSEE Filosofi. Le revenu est un revenu de "
+        "ménage reconstitué (niveau de vie × unités de consommation par ménage). "
+        "Surfaces de référence : 37 m² pour le petit logement, 72 m² pour le logement familial.")
+
+
+def graphique_categories(fiable, suffixe):
+    lignes = []
+    for cle, libelle, colonne in (
+        ("median", "Ménage médian", f"effort_median_{suffixe}"),
+        ("d1", "Ménage modeste (1er décile)", f"effort_d1_{suffixe}"),
+    ):
+        s = fiable.dropna(subset=[colonne])
+        if s.empty:
+            continue
+        cat = pd.cut(s[colonne], bins=BORNES_EFFORT, labels=CATEGORIES_EFFORT, right=False)
+        vc = cat.value_counts().reindex(CATEGORIES_EFFORT)
+        for nom in CATEGORIES_EFFORT:
+            lignes.append(dict(profil=libelle, categorie=nom, n=int(vc[nom]),
+                               part=100 * vc[nom] / len(s), total=len(s)))
+    if not lignes:
+        st.warning("Aucune commune documentée sur ce périmètre.")
+        return
+    d = pd.DataFrame(lignes)
+
+    fig = go.Figure()
+    for nom in CATEGORIES_EFFORT:
+        s = d[d.categorie == nom]
+        fig.add_trace(go.Bar(
+            y=s.profil, x=s.part, name=nom, orientation="h",
+            marker_color=th.CATEGORIES_EFFORT[nom],
+            text=[th.fmt(v, "taux") if v >= 4 else "" for v in s.part],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color=th.BLANC, size=12),
+            customdata=np.stack([s.n, s.total], axis=-1),
+            hovertemplate="<b>%{y}</b><br>" + nom +
+                          " : %{x:.1f} %<br>%{customdata[0]} communes sur %{customdata[1]}"
+                          "<extra></extra>"))
+    fig.update_layout(barmode="stack", xaxis=dict(title="Part des communes (%)", range=[0, 100]),
+                      yaxis=dict(title=""))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 260, "Catégories d'effort locatif, par profil de ménage"),
+        width="stretch")
+    st.caption(
+        "Seuils : accessible en dessous de 20 %, modéré de 20 à 33 %, effort important de 33 à "
+        "50 %, insoutenable au-delà de 50 %. "
+        + th.perimetre_modeste(inline=True).replace("<b>", "").replace("</b>", ""))
+
+
+def graphique_departements(base, col_effort, profil, segment):
+    if base.empty:
+        st.warning("Aucune commune documentée sur ce périmètre.")
+        return
+    noms = dl.noms_departements()
+    d = (base.groupby("dep")[col_effort].agg(["median", "count"])
+             .reset_index().rename(columns={"median": "effort", "count": "n"}))
+    d = d[d.n >= 3].sort_values("effort")
+    d["nom"] = d.dep.map(noms).fillna(d.dep)
+
+    couleurs = [th.ROUGE if v > SEUIL_EFFORT else th.BLEU for v in d.effort]
+    fig = go.Figure(go.Bar(
+        x=d.effort, y=d.nom, orientation="h", marker_color=couleurs,
+        customdata=np.stack([d.dep, d.n], axis=-1),
+        hovertemplate="<b>%{y}</b> (%{customdata[0]})<br>Effort %{x:.1f} %<br>"
+                      "%{customdata[1]} communes<extra></extra>"))
+    fig.add_vline(x=SEUIL_EFFORT, line=dict(color=th.BLEU_FONCE, dash="dash", width=1.5))
+    fig.update_layout(xaxis=dict(title="Taux d'effort médian (%)"),
+                      yaxis=dict(title="", tickfont=dict(size=9)))
+    hauteur = max(420, 16 * len(d))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, hauteur, f"{profil} · {segment.split(' (')[0]}"),
+        width="stretch")
+    st.caption(
+        f"Médiane des taux communaux, départements documentés sur au moins 3 communes. "
+        f"La ligne marque le seuil de 33 %. "
+        f"{int((d.effort > SEUIL_EFFORT).sum())} département(s) au-delà.")
+
+
+def tableau_villes(vil, deps, modeste):
+    v = vil.copy()
+    if deps:
+        v = v[v.dep.isin(deps)]
+    if v.empty:
+        st.info("Aucune ville de plus de 100 000 habitants dans la sélection.")
+        return
+    colonne = "effort_d1_familial" if modeste else "effort_familial"
+    v = v.sort_values(colonne, ascending=False)
+    affichage = pd.DataFrame({
+        "Ville": v.ville,
+        "Dép.": v.dep,
+        "Petit logement": v.effort_petit.map(lambda x: th.fmt(x, "taux")),
+        "Familial · médian": v.effort_familial.map(lambda x: th.fmt(x, "taux")),
+        "Familial · modeste": v.effort_d1_familial.map(lambda x: th.fmt(x, "taux")),
+    })
+    st.dataframe(affichage, width="stretch", hide_index=True, height=460)
+    st.caption(
+        "Communes de plus de 100 000 habitants, classées par effort décroissant du profil "
+        "affiché. Paris culmine à "
+        f"{th.fmt(float(vil.loc[vil.ville == 'Paris', 'effort_familial'].iloc[0]), 'taux')} "
+        "pour un ménage médian et "
+        f"{th.fmt(float(vil.loc[vil.ville == 'Paris', 'effort_d1_familial'].iloc[0]), 'taux')} "
+        "pour un ménage modeste — niveau qui rend l'accès arithmétiquement impossible.")
+
+
 # ---------- navigation ----------
 def main():
     st.sidebar.markdown("### Que Choisir Ensemble")
@@ -285,7 +489,7 @@ def main():
     if len(ONGLETS) == 1:
         vue_ensemble()
     else:
-        for onglet, contenu in zip(st.tabs(ONGLETS), [vue_ensemble]):
+        for onglet, contenu in zip(st.tabs(ONGLETS), [vue_ensemble, parc_locatif]):
             with onglet:
                 contenu()
 

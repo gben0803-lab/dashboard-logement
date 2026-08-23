@@ -49,6 +49,16 @@ def confort():
 
 
 @st.cache_data(show_spinner=False)
+def villes():
+    return _lire("villes.csv")
+
+
+@st.cache_data(show_spinner=False)
+def decomposition():
+    return _lire("decomposition_prix_taux.csv")
+
+
+@st.cache_data(show_spinner=False)
 def noms_departements():
     t = tension()[["dep", "nom"]].dropna()
     return dict(zip(t.dep, t.nom))

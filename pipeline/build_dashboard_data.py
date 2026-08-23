@@ -7,7 +7,8 @@ Aucune lecture des bases brutes : DVF_clean, DPE_clean et RPLS_clean ne sont
 jamais ouverts. Les CSV de FINDINGS/ font foi.
 
 Sorties : communes_acces.csv, departements_tension.csv, departements_qualite.csv,
-          series_temporelles.csv, confort_ete.csv
+          series_temporelles.csv, confort_ete.csv, villes.csv,
+          decomposition_prix_taux.csv
 """
 
 import json
@@ -25,6 +26,18 @@ SORTIE = os.path.join(RACINE, "data_dashboard")
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
+
+DUREE_MOIS = 240
+TAUX_ASSURANCE = 0.0030
+
+
+def facteur_financement(taux):
+    i = taux / 12
+    return i / (1 - (1 + i) ** -DUREE_MOIS) + TAUX_ASSURANCE / 12
+
+
+FACTEUR_2021 = facteur_financement(0.0100)
+FACTEUR_2025 = facteur_financement(0.0320)
 
 
 def sans_accent(nom):
@@ -58,6 +71,11 @@ def charger():
     src["w3p"] = lire(os.path.join(PHASE2, "dept_effort_weighted_t3p.csv"), dtype={"DEP": str})
     src["serie_nat"] = lire(os.path.join(PHASE2, "serie_surface_national.csv"))
     src["serie_villes"] = lire(os.path.join(PHASE2, "serie_surface_villes.csv"))
+    src["serie_communes"] = lire(os.path.join(PHASE2, "serie_surface_communes.csv"),
+                                 dtype={"INSEE_C": str, "DEP": str})
+    src["villes_effort"] = lire(os.path.join(PHASE2, "grandes_villes_effort.csv"))
+    src["villes_achat"] = lire(os.path.join(PHASE2, "pouvoir_achat_grandes_villes.csv"))
+    src["decomp"] = lire(os.path.join(PHASE2, "serie_surface_decomposition.csv"))
     src["rp"] = normalise_colonnes(pd.read_csv(
         os.path.join(BASES, "INSEE_RP", "INSEE_logement_2022_dept.csv"),
         sep=";", dtype={"dept_code": str}))
@@ -188,6 +206,56 @@ def build_series(src):
     return out[cols].sort_values(["perimetre", "annee", "ville"]).reset_index(drop=True)
 
 
+# ---------- grandes villes : effort locatif et surface financable ----------
+def build_villes(src):
+    e = src["villes_effort"].rename(columns={
+        "departement": "dep", "taux_effort_t12_median": "effort_petit",
+        "taux_effort_t3p_median": "effort_familial", "taux_effort_t3p_d1": "effort_d1_familial"})
+    e = e[["ville", "dep", "population", "effort_petit", "effort_familial", "effort_d1_familial"]]
+
+    a = src["villes_achat"]
+    a.columns = ["rang", "ville", "dep", "population", "prix_m2_appart",
+                 "revenu_menage", "surface_financable"]
+    a = a[["ville", "prix_m2_appart", "revenu_menage", "surface_financable"]]
+
+    v = src["serie_villes"].rename(columns={"departement": "dep"})
+    v = v[["ville"] + [f"surface_{an}" for an in range(2021, 2026)] + ["delta_m2", "delta_pct"]]
+
+    out = e.merge(a, on="ville", how="left").merge(v, on="ville", how="left")
+    out["dep"] = out.dep.astype(str)
+    return out.sort_values("population", ascending=False).reset_index(drop=True)
+
+
+# ---------- decomposition de la perte entre prix et taux ----------
+def build_decomposition(src):
+    d = src["decomp"]
+    a_ref = float(d.loc[d.scenario == "prix 2021 + taux 2021", "surface_m2"].iloc[0])
+    b_prix = float(d.loc[d.scenario == "prix 2025 + taux 2021", "surface_m2"].iloc[0])
+    c_full = float(d.loc[d.scenario == "prix 2025 + taux 2025", "surface_m2"].iloc[0])
+
+    sc = src["serie_communes"].dropna(subset=["surface_financable_2021", "surface_financable_2025"])
+    b_taux = float((sc.surface_financable_2021 * (FACTEUR_2021 / FACTEUR_2025)).median())
+    total = c_full - a_ref
+
+    lignes = [
+        dict(ordre="prix_puis_taux", etape=1, scenario="prix 2021 + taux 2021",
+             surface_m2=a_ref, effet_m2=np.nan, part_pct=np.nan),
+        dict(ordre="prix_puis_taux", etape=2, scenario="prix 2025 + taux 2021",
+             surface_m2=b_prix, effet_m2=b_prix - a_ref, part_pct=100 * (b_prix - a_ref) / total),
+        dict(ordre="prix_puis_taux", etape=3, scenario="prix 2025 + taux 2025",
+             surface_m2=c_full, effet_m2=c_full - b_prix, part_pct=100 * (c_full - b_prix) / total),
+        dict(ordre="taux_puis_prix", etape=1, scenario="prix 2021 + taux 2021",
+             surface_m2=a_ref, effet_m2=np.nan, part_pct=np.nan),
+        dict(ordre="taux_puis_prix", etape=2, scenario="prix 2021 + taux 2025",
+             surface_m2=b_taux, effet_m2=b_taux - a_ref, part_pct=100 * (b_taux - a_ref) / total),
+        dict(ordre="taux_puis_prix", etape=3, scenario="prix 2025 + taux 2025",
+             surface_m2=c_full, effet_m2=c_full - b_taux, part_pct=100 * (c_full - b_taux) / total),
+    ]
+    out = pd.DataFrame(lignes)
+    out["n_communes_panel"] = len(sc)
+    return out
+
+
 # ---------- confort d'ete : lecture seule du JSON fige ----------
 def build_confort(src):
     j = src["confort"]
@@ -238,7 +306,7 @@ def build_confort(src):
 
 
 # ---------- controles de conformite au rapport ----------
-def controles(com, ten, qua, ser, con, src):
+def controles(com, ten, qua, ser, con, vil, dec, src):
     res = []
 
     def test(nom, obtenu, attendu, tol=0.05):
@@ -280,6 +348,30 @@ def controles(com, ten, qua, ser, con, src):
     test("taux de suroccupation national",
          (rp.taux_suroccupation * rp.nb_rp).sum() / rp.nb_rp.sum(), 9.6)
 
+    p = vil[vil.ville == "Paris"].iloc[0]
+    test("Paris, effort petit logement", p.effort_petit, 35.4)
+    test("Paris, effort menage median, familial", p.effort_familial, 63.3)
+    test("Paris, effort menage D1, familial", p.effort_d1_familial, 159.4)
+    test("Paris, surface financable", p.surface_financable, 21.5)
+    test("Saint-Etienne, surface financable",
+         float(vil.loc[vil.ville == "Saint-Étienne", "surface_financable"].iloc[0]), 70.4)
+
+    d1 = dec[dec.ordre == "prix_puis_taux"].set_index("etape")
+    d2 = dec[dec.ordre == "taux_puis_prix"].set_index("etape")
+    test("decomposition, base 2021", d1.loc[1, "surface_m2"], 114.7, 0.05)
+    test("decomposition, prix seuls", d1.loc[2, "surface_m2"], 107.8, 0.05)
+    test("decomposition, total 2025", d1.loc[3, "surface_m2"], 88.6, 0.05)
+    test("decomposition, taux seuls (ordre inverse)", d2.loc[2, "surface_m2"], 94.3, 0.05)
+    test("part des taux, ordre prix->taux", d1.loc[3, "part_pct"], 73.0, 0.5)
+    test("part des taux, ordre taux->prix", d2.loc[2, "part_pct"], 78.0, 0.5)
+    test("panel constant", float(dec.n_communes_panel.iloc[0]), 12915.0, 0)
+    test("perte totale en m2", d1.loc[2, "effet_m2"] + d1.loc[3, "effet_m2"], -26.1, 0.05)
+
+    n2 = ser[ser.perimetre == "national"].set_index("annee")
+    perte = n2.loc[2025, "surface_financable"] - n2.loc[2021, "surface_financable"]
+    test("perte nationale en m2", perte, -29.5, 0.05)
+    test("perte nationale en %", 100 * perte / n2.loc[2021, "surface_financable"], -24.8, 0.05)
+
     sne = src["sne"]
     dep = sne[sne.level == "Departement"].copy()
     dep["tension_ratio"] = pd.to_numeric(dep.tension_ratio, errors="coerce")
@@ -305,8 +397,10 @@ def main():
     qua = build_qualite(src)
     ser = build_series(src)
     con = build_confort(src)
+    vil = build_villes(src)
+    dec = build_decomposition(src)
 
-    res = controles(com, ten, qua, ser, con, src)
+    res = controles(com, ten, qua, ser, con, vil, dec, src)
     largeur = max(len(n) for n, *_ in res)
     print("CONTROLES DE CONFORMITE AU RAPPORT")
     print("-" * (largeur + 34))
@@ -320,7 +414,8 @@ def main():
 
     tables = {"communes_acces.csv": com, "departements_tension.csv": ten,
               "departements_qualite.csv": qua, "series_temporelles.csv": ser,
-              "confort_ete.csv": con}
+              "confort_ete.csv": con, "villes.csv": vil,
+              "decomposition_prix_taux.csv": dec}
     print("\nFICHIERS PRODUITS")
     total = 0
     for nom, df in tables.items():

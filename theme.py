@@ -16,6 +16,7 @@ VERT = "#3FA535"
 GRIS = "#E8E8E8"
 BLANC = "#FFFFFF"
 GRIS_TEXTE = "#5A6672"
+JAUNE_FOND = "#FFFBE0"
 TRANSPARENT = "rgba(0,0,0,0)"
 
 ECHELLE_BLEUE = ["#E8EFF7", "#C2D6EB", "#8FB4DA", "#5A8FC7", "#2E6EB0", "#004F9F", "#00274F"]
@@ -96,6 +97,9 @@ def configurer_page(titre):
                         line-height: 1.15; margin: .18rem 0; }}
         .kpi.critique .valeur {{ color: {ROUGE}; }}
         .kpi .note {{ color: {GRIS_TEXTE}; font-size: .78rem; }}
+        .perimetre {{ background: {JAUNE_FOND}; border-left: 4px solid {JAUNE};
+                      padding: .6rem .9rem; border-radius: 4px; font-size: .87rem;
+                      color: {BLEU_FONCE}; margin: .5rem 0 .9rem; }}
         .source {{ color: {GRIS_TEXTE}; font-size: .78rem; border-top: 1px solid {GRIS};
                    padding-top: .5rem; margin-top: .8rem; }}
         </style>
@@ -113,6 +117,17 @@ def kpi(libelle, valeur, note="", critique=False):
         f'<div class="{classe}"><div class="libelle">{libelle}</div>'
         f'<div class="valeur">{valeur}</div><div class="note">{note}</div></div>',
         unsafe_allow_html=True)
+
+
+def perimetre_modeste(n_communes=5163, inline=False):
+    """Rappel obligatoire : le menage modeste ne porte pas sur le territoire entier."""
+    texte = (f"Le ménage modeste (1<sup>er</sup> décile) porte sur "
+             f"<b>{fmt(n_communes)} communes</b> — celles pour lesquelles l'INSEE publie le "
+             f"premier décile de revenu — et non sur l'ensemble du territoire.")
+    if inline:
+        return texte
+    st.markdown(
+        f'<div class="perimetre">⚠️ {texte}</div>', unsafe_allow_html=True)
 
 
 def source(texte):
