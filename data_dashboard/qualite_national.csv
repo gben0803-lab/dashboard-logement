@@ -1,0 +1,9 @@
+cle,libelle,valeur,format
+taux_passoires,Part de logements classés F ou G,9.77907840468,taux
+cout_median,Coût énergétique annuel médian,1769,euro
+part_revenu_med,"Coût énergie en part du revenu, médiane",4.77204176404,taux
+part_revenu_q1,"Coût énergie en part du revenu, 1er quartile",3.85892899284,taux
+part_revenu_q3,"Coût énergie en part du revenu, 3e quartile",5.85147424939,taux
+n_communes_part_revenu,Communes du calcul de la part du revenu,25576,entier
+taux_suroccupation,Taux de suroccupation national,9.62863727286,taux
+n_dpe,Diagnostics rattachés à une commune,13995644,entier

@@ -8,7 +8,7 @@ jamais ouverts. Les CSV de FINDINGS/ font foi.
 
 Sorties : communes_acces.csv, departements_tension.csv, departements_qualite.csv,
           series_temporelles.csv, confort_ete.csv, villes.csv,
-          decomposition_prix_taux.csv
+          decomposition_prix_taux.csv, qualite_national.csv
 """
 
 import json
@@ -45,6 +45,15 @@ def racine_sources():
 SOURCES = racine_sources()
 PHASE2 = os.path.join(SOURCES, "FINDINGS", "Phase2")
 BASES = os.path.join(SOURCES, "Base de données")
+
+REGIONS = {
+    "01": "Guadeloupe", "02": "Martinique", "03": "Guyane", "04": "La Réunion",
+    "06": "Mayotte", "11": "Île-de-France", "24": "Centre-Val de Loire",
+    "27": "Bourgogne-Franche-Comté", "28": "Normandie", "32": "Hauts-de-France",
+    "44": "Grand Est", "52": "Pays de la Loire", "53": "Bretagne",
+    "75": "Nouvelle-Aquitaine", "76": "Occitanie", "84": "Auvergne-Rhône-Alpes",
+    "93": "Provence-Alpes-Côte d'Azur", "94": "Corse",
+}
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
@@ -129,9 +138,14 @@ def build_communes(src):
     p = src["peine"][["insee_c", "tension_2025", "echec_loc_med", "echec_loc_d1",
                       "echec_achat", "echec_social", "n_legs_dispo"]]
 
+    qc = src["qualite"][["insee_c", "n_dpe", "taux_passoires", "cout_median",
+                         "taux_suroccupation"]]
+    qc = qc.rename(columns={"taux_suroccupation": "suroccupation_commune"})
+
     df = petit.merge(fam, on="insee_c", how="outer") \
               .merge(a, on="insee_c", how="outer") \
-              .merge(p, on="insee_c", how="outer")
+              .merge(p, on="insee_c", how="outer") \
+              .merge(qc, on="insee_c", how="left")
 
     for c in ("echec_loc_med", "echec_loc_d1", "echec_achat", "echec_social"):
         df[c] = df[c].map({True: True, False: False, "True": True, "False": False})
@@ -173,6 +187,17 @@ def build_tension(src):
     return out.sort_values("dep").reset_index(drop=True)
 
 
+# ---------- cout energetique rapporte au revenu du menage ----------
+def part_cout_revenu(src):
+    q = src["qualite"][["insee_c", "cout_median", "n_dpe"]]
+    r = src["achat"][["insee_c", "revenu_menage_proxy"]]
+    m = q.merge(r, on="insee_c", how="inner").dropna(
+        subset=["cout_median", "revenu_menage_proxy"])
+    m = m[m.n_dpe >= 20].copy()
+    m["part"] = 100 * m.cout_median / m.revenu_menage_proxy
+    return m
+
+
 # ---------- departements : qualite du parc ----------
 def build_qualite(src):
     q = src["qualite"]
@@ -191,9 +216,38 @@ def build_qualite(src):
     rp = src["rp"].rename(columns={"dept_code": "dep"})[
         ["dep", "nb_rp", "taux_suroccupation", "part_hlm", "part_loc_prive", "taux_vacance"]]
 
-    out = agg.merge(rp, on="dep", how="outer")
+    pcr = part_cout_revenu(src).merge(src["qualite"][["insee_c", "dep"]], on="insee_c")
+    pcr = pcr.groupby("dep").part.median().rename("part_cout_revenu").reset_index()
+
+    out = agg.merge(rp, on="dep", how="outer").merge(pcr, on="dep", how="left")
     out["dep"] = out.dep.astype(str)
     return out.sort_values("dep").reset_index(drop=True)
+
+
+# ---------- agregats nationaux de la qualite du parc ----------
+def build_qualite_national(src, qua):
+    m = part_cout_revenu(src)
+    rp = src["rp"]
+    q = qua.dropna(subset=["taux_passoires", "n_dpe"])
+    lignes = [
+        ("taux_passoires", "Part de logements classés F ou G",
+         100 * (q.taux_passoires / 100 * q.n_dpe).sum() / q.n_dpe.sum(), "taux"),
+        ("cout_median", "Coût énergétique annuel médian",
+         float(src["qualite"].loc[src["qualite"].n_dpe >= 20, "cout_median"].median()), "euro"),
+        ("part_revenu_med", "Coût énergie en part du revenu, médiane",
+         float(m.part.median()), "taux"),
+        ("part_revenu_q1", "Coût énergie en part du revenu, 1er quartile",
+         float(m.part.quantile(0.25)), "taux"),
+        ("part_revenu_q3", "Coût énergie en part du revenu, 3e quartile",
+         float(m.part.quantile(0.75)), "taux"),
+        ("n_communes_part_revenu", "Communes du calcul de la part du revenu",
+         float(len(m)), "entier"),
+        ("taux_suroccupation", "Taux de suroccupation national",
+         float((rp.taux_suroccupation * rp.nb_rp).sum() / rp.nb_rp.sum()), "taux"),
+        ("n_dpe", "Diagnostics rattachés à une commune",
+         float(q.n_dpe.sum()), "entier"),
+    ]
+    return pd.DataFrame(lignes, columns=["cle", "libelle", "valeur", "format"])
 
 
 # ---------- series temporelles ----------
@@ -311,7 +365,8 @@ def build_confort(src):
     for dim in ("par_etiquette", "par_region", "par_departement", "par_energie",
                 "par_periode", "par_batiment", "paris_arrondissements"):
         for cle, d in j[dim].items():
-            ajoute(dim, cle, d.get("label", str(cle)), d)
+            libelle = REGIONS.get(str(cle), str(cle)) if dim == "par_region" else str(cle)
+            ajoute(dim, cle, d.get("label", libelle), d)
 
     for cle, d in j["sous_criteres"].items():
         for etat in ("insuffisant", "bon"):
@@ -328,7 +383,7 @@ def build_confort(src):
 
 
 # ---------- controles de conformite au rapport ----------
-def controles(com, ten, qua, ser, con, vil, dec, src):
+def controles(com, ten, qua, ser, con, vil, dec, qnat, src):
     res = []
 
     def test(nom, obtenu, attendu, tol=0.05):
@@ -400,9 +455,24 @@ def controles(com, ten, qua, ser, con, vil, dec, src):
     dep["year"] = pd.to_numeric(dep.year, errors="coerce")
     test("tension mediane departementale 2025", dep[dep.year == 2025].tension_ratio.median(), 5.17, 0.01)
 
+    qn = qnat.set_index("cle").valeur
+    fiable_dpe = com[com.n_dpe >= 20]
+    test("cout energetique median, niveau communal",
+         float(fiable_dpe.cout_median.median()), 1769.0, 0.5)
+    test("part du revenu, mediane", qn["part_revenu_med"], 4.8)
+    test("part du revenu, Q1", qn["part_revenu_q1"], 3.9)
+    test("part du revenu, Q3", qn["part_revenu_q3"], 5.9)
+    test("communes du calcul part du revenu", qn["n_communes_part_revenu"], 25576.0, 0)
+
     cn = con[con.dimension == "national"].iloc[0]
     test("confort d'ete insuffisant", cn.pct_insuffisant, 40.0)
     test("confort d'ete bon", cn.pct_bon, 17.3)
+    test("effectif confort bon", float(cn.bon), 1793312.0, 0)
+    test("effectif confort moyen", float(cn.moyen), 4436103.0, 0)
+    test("effectif confort insuffisant", float(cn.insuffisant), 4144821.0, 0)
+    rg = con[(con.dimension == "par_region") & (con.libelle == "Hauts-de-France")]
+    test("region Hauts-de-France nommee et retrouvee",
+         float(rg.pct_insuffisant.iloc[0]) if len(rg) else None, 51.2, 0.05)
 
     test("ratio parc social 2016 (aligne audit)", RATIO_SOCIAL_2016, 4.06, 0)
     test("ratio parc social 2025 (aligne audit)", RATIO_SOCIAL_2025, 7.34, 0)
@@ -421,8 +491,9 @@ def main():
     con = build_confort(src)
     vil = build_villes(src)
     dec = build_decomposition(src)
+    qnat = build_qualite_national(src, qua)
 
-    res = controles(com, ten, qua, ser, con, vil, dec, src)
+    res = controles(com, ten, qua, ser, con, vil, dec, qnat, src)
     largeur = max(len(n) for n, *_ in res)
     print("CONTROLES DE CONFORMITE AU RAPPORT")
     print("-" * (largeur + 34))
@@ -437,12 +508,13 @@ def main():
     tables = {"communes_acces.csv": com, "departements_tension.csv": ten,
               "departements_qualite.csv": qua, "series_temporelles.csv": ser,
               "confort_ete.csv": con, "villes.csv": vil,
-              "decomposition_prix_taux.csv": dec}
+              "decomposition_prix_taux.csv": dec,
+              "qualite_national.csv": qnat}
     print("\nFICHIERS PRODUITS")
     total = 0
     for nom, df in tables.items():
         chemin = os.path.join(SORTIE, nom)
-        df.to_csv(chemin, index=False, encoding="utf-8", float_format="%.6g")
+        df.to_csv(chemin, index=False, encoding="utf-8", float_format="%.12g")
         taille = os.path.getsize(chemin)
         total += taille
         print(f"  {nom:<28} {len(df):>7} lignes x {df.shape[1]:>2} col   {taille/1024:>8.1f} Ko")

@@ -16,7 +16,7 @@ import theme as th
 th.configurer_page("Accès au logement")
 
 ONGLETS = ["Vue d'ensemble", "Parc locatif privé", "Accession à la propriété",
-           "Parc social et cumul"]
+           "Parc social et cumul", "Qualité du parc"]
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34
@@ -28,6 +28,8 @@ SURFACE_FAMILIALE = 72
 VILLE_ATYPIQUE = "Brest"
 SEUIL_SURFACE_CUMUL = 40
 SEUILS_SENSIBILITE = (35, 40, 45)
+ETIQUETTES_DPE = ["A", "B", "C", "D", "E", "F", "G"]
+DATE_EXTRACTION_ADEME = "27 juillet 2026"
 
 
 # ---------- filtres communs, rendus dans le corps de l'onglet ----------
@@ -940,6 +942,243 @@ def graphique_sensibilite(com_f, ten):
         f"Le seuil retenu est {SEUIL_SURFACE_CUMUL} m².")
 
 
+# ---------- onglet 5 : qualite du parc ----------
+def qualite_parc():
+    th.bandeau(
+        "Qualité du parc de logements",
+        "Trois dimensions du mal-logement qui ne se superposent pas géographiquement — "
+        "et une quatrième, absente du diagnostic remis au consommateur : le confort d'été.")
+
+    qua = dl.qualite()
+    nat = dl.qualite_national()
+    con = dl.confort()
+    com = dl.communes()
+
+    f1, f2 = st.columns([2, 1], gap="medium")
+    deps = selecteur_departements(f1, "qua")
+    dimension = f2.radio(
+        "Dimension cartographiée",
+        ["Passoires énergétiques", "Coût de l'énergie", "Suroccupation"], key="dim_qua")
+
+    qua_f = appliquer_departements(qua, deps)
+    com_f = appliquer_departements(com, deps)
+    dpe_f = com_f[com_f.n_dpe >= 20]
+
+    # indicateurs
+    st.subheader("Trois dimensions, trois géographies")
+    q = qua_f.dropna(subset=["taux_passoires", "n_dpe"])
+    c = st.columns(5)
+    with c[0]:
+        v = 100 * (q.taux_passoires / 100 * q.n_dpe).sum() / q.n_dpe.sum() if len(q) else np.nan
+        th.kpi("Passoires énergétiques", th.fmt(v, "taux"), "logements classés F ou G",
+               critique=True)
+    with c[1]:
+        th.kpi("Coût énergétique médian", th.fmt(dpe_f.cout_median.median(), "euro"),
+               f"par logement et par an · {th.fmt(len(dpe_f))} communes")
+    with c[2]:
+        part = qua_f.part_cout_revenu.median()
+        th.kpi("Part du revenu", th.fmt(part, "taux"),
+               f"médiane · Q1 {th.fmt(nat.valeur['part_revenu_q1'], 'taux')} · "
+               f"Q3 {th.fmt(nat.valeur['part_revenu_q3'], 'taux')}")
+    with c[3]:
+        s = qua_f.dropna(subset=["taux_suroccupation", "nb_rp"])
+        v = (s.taux_suroccupation * s.nb_rp).sum() / s.nb_rp.sum() if len(s) else np.nan
+        th.kpi("Suroccupation", th.fmt(v, "taux"), "des résidences principales")
+    with c[4]:
+        cn = con[con.dimension == "national"].iloc[0]
+        th.kpi("Confort d'été insuffisant", th.fmt(cn.pct_insuffisant, "taux"),
+               f"{th.fmt(cn.insuffisant)} logements diagnostiqués", critique=True)
+
+    st.caption(
+        "La dégradation énergétique est rurale et liée au bâti ancien ; la suroccupation est "
+        "métropolitaine et ultramarine. Les départements les plus touchés par l'une comptent "
+        "parmi les moins touchés par l'autre — c'est pourquoi le rapport ne construit aucun "
+        "indice synthétique.")
+
+    # geographie
+    st.subheader(f"{dimension} par département")
+    graphique_qualite_departements(qua_f, dimension)
+
+    # confort d'ete
+    st.subheader("Le confort d'été, angle mort du diagnostic")
+    st.caption(
+        f"Extraction ADEME du {DATE_EXTRACTION_ADEME}. Ce chapitre repose sur une donnée figée : "
+        "les colonnes de confort d'été ne figurent pas dans l'export local du répertoire DPE et "
+        "ne peuvent pas être recalculées depuis les bases livrées.")
+    g, d = st.columns(2, gap="large")
+    with g:
+        graphique_confort_repartition(con)
+    with d:
+        graphique_confort_etiquette(con)
+
+    g2, d2 = st.columns(2, gap="large")
+    with g2:
+        graphique_confort_facteurs(con)
+    with d2:
+        graphique_confort_region(con)
+
+    # export
+    st.subheader("Détail départemental")
+    tableau = tableau_qualite(qua_f, con)
+    st.dataframe(tableau, width="stretch", hide_index=True, height=320)
+    th.bouton_csv(qua_f, "qce_qualite_parc.csv")
+
+    st.info(
+        "Deux éléments du rapport ne figurent pas ici, faute de source reproductible depuis les "
+        "agrégats livrés : la ventilation des passoires par période de construction, qui exige "
+        "une relecture du répertoire DPE complet, et le tableau des passoires par statut "
+        "d'occupation, qui reprend des estimations du SDES — le diagnostic ne portant pas le "
+        "statut d'occupation du logement.", icon="ℹ️")
+
+    th.source(
+        f"Sources : DPE ADEME (indicateurs communaux, export du 9 juin 2026 ; confort d'été, "
+        f"extraction API du {DATE_EXTRACTION_ADEME}) · INSEE recensement 2022 pour la "
+        "suroccupation, calculée comme une somme pondérée par les résidences principales et non "
+        "comme une médiane communale.")
+
+
+def graphique_qualite_departements(qua_f, dimension):
+    colonnes = {"Passoires énergétiques": ("taux_passoires", "taux", "Part F ou G (%)", True),
+                "Coût de l'énergie": ("cout_median", "euro", "Coût annuel médian (€)", True),
+                "Suroccupation": ("taux_suroccupation", "taux", "Taux de suroccupation (%)", True)}
+    col, genre, axe, fort_est_mauvais = colonnes[dimension]
+    d = qua_f.dropna(subset=[col]).copy()
+    if d.empty:
+        st.warning("Aucun département documenté sur cette dimension.")
+        return
+    noms = dl.noms_departements()
+    d["nom"] = d.dep.map(noms).fillna(d.dep)
+    d = d.sort_values(col, ascending=False)
+    total = len(d)
+    tout = st.checkbox(f"Afficher les {total} départements", key=f"tous_qua_{col}")
+    d, tronque = extremes(d, tout)
+
+    seuil = d[col].quantile(0.8)
+    couleurs = [th.ROUGE if v >= seuil else th.BLEU for v in d[col]]
+    fig = go.Figure(go.Bar(
+        x=d[col], y=d.nom, orientation="h", marker_color=couleurs,
+        customdata=np.stack([d.dep], axis=-1),
+        hovertemplate="<b>%{y}</b> (%{customdata[0]})<br>%{x:.1f}<extra></extra>"))
+    fig.update_layout(xaxis=dict(title=axe),
+                      yaxis=dict(title="", autorange="reversed", tickfont=dict(size=9)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, max(400, 18 * len(d)), f"{dimension}, par département"),
+        width="stretch")
+    st.caption(
+        ("Affichage des 15 départements les plus touchés et des 15 les moins touchés, "
+         f"sur {total}." if tronque else f"{total} départements affichés.")
+        + " Le cinquième supérieur est signalé en rouge.")
+
+
+def graphique_confort_repartition(con):
+    cn = con[con.dimension == "national"].iloc[0]
+    valeurs = [cn.bon, cn.moyen, cn.insuffisant]
+    libelles = ["Bon", "Moyen", "Insuffisant"]
+    couleurs = [th.ECHELLE_BLEUE[2], th.BLEU, th.ROUGE]
+    fig = go.Figure(go.Bar(
+        x=libelles, y=valeurs, marker_color=couleurs,
+        text=[f"{th.fmt(100 * v / cn.renseigne, 'taux')}<br>{th.fmt(v)}" for v in valeurs],
+        textposition="outside", textfont=dict(color=th.BLEU_FONCE, size=11),
+        hovertemplate="%{x}<br>%{y:,.0f} logements<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="", type="category"),
+                      yaxis=dict(title="Logements diagnostiqués",
+                                 range=[0, max(valeurs) * 1.28]))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 340, "Répartition selon le confort d'été"),
+        width="stretch")
+    st.caption(
+        f"Sur {th.fmt(cn.renseigne)} diagnostics renseignés, soit "
+        f"{th.fmt(100 * cn.renseigne / cn.total_dpe, 'taux')} du répertoire.")
+
+
+def graphique_confort_etiquette(con):
+    d = con[con.dimension == "par_etiquette"].copy()
+    d = d[d.cle.isin(ETIQUETTES_DPE)].set_index("cle").reindex(ETIQUETTES_DPE).reset_index()
+    ab = con[con.dimension == "paradoxe_ab"].iloc[0]
+    couleurs = [th.ROUGE if c in ("A", "B", "C") else th.BLEU for c in d.cle]
+    fig = go.Figure(go.Bar(
+        x=d.cle, y=d.pct_insuffisant, marker_color=couleurs,
+        text=[th.fmt(v, "taux") for v in d.pct_insuffisant], textposition="outside",
+        textfont=dict(color=th.BLEU_FONCE, size=11),
+        hovertemplate="Étiquette %{x}<br>%{y:.1f} %% en confort insuffisant<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="Étiquette énergétique", type="category"),
+                      yaxis=dict(title="Confort d'été insuffisant (%)",
+                                 range=[0, d.pct_insuffisant.max() * 1.25]))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 340, "Confort d'été selon l'étiquette énergétique"),
+        width="stretch")
+    st.caption(
+        f"Le lien existe de A à G, mais il est **plat sur toute la moitié haute** : A, B et C "
+        f"sont indiscernables, et le minimum se situe en **C**, non en A. Parmi les "
+        f"{th.fmt(ab.renseigne)} logements étiquetés A ou B, "
+        f"{th.fmt(100 * ab.insuffisant / ab.renseigne, 'taux')} surchauffent en été. "
+        "L'étiquette est un indicateur d'hiver.")
+
+
+def graphique_confort_facteurs(con):
+    d = con[con.dimension == "sous_critere"].copy()
+    d["critere"] = d.cle.str.split("|").str[0]
+    d["etat"] = d.cle.str.split("|").str[1]
+    piv = d.pivot(index="libelle", columns="etat", values="pct_insuffisant").reset_index()
+    piv = piv.sort_values("bon", ascending=True)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=piv.libelle, x=piv["bon"], name="Logements au bon confort",
+                         orientation="h", marker_color=th.BLEU,
+                         hovertemplate="%{y}<br>présent chez %{x:.1f} %<extra></extra>"))
+    fig.add_trace(go.Bar(y=piv.libelle, x=piv["insuffisant"], name="Logements inconfortables",
+                         orientation="h", marker_color=th.ROUGE,
+                         hovertemplate="%{y}<br>présent chez %{x:.1f} %<extra></extra>"))
+    fig.update_layout(barmode="group", xaxis=dict(title="Présence du critère (%)"),
+                      yaxis=dict(title="", tickfont=dict(size=10)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 360, "Ce qui distingue un logement confortable"),
+        width="stretch")
+    ps = piv[piv.libelle.str.contains("Protection")].iloc[0]
+    st.caption(
+        f"La protection solaire extérieure est le facteur le plus discriminant : présente chez "
+        f"{th.fmt(ps['bon'], 'taux')} des logements confortables, absente chez "
+        f"{th.fmt(100 - ps['insuffisant'], 'taux')} des inconfortables. "
+        "L'isolation de toiture va en sens inverse — c'est une mesure d'hiver.")
+
+
+def graphique_confort_region(con):
+    d = con[con.dimension == "par_region"].copy()
+    d = d[d.renseigne >= 20000].sort_values("pct_insuffisant", ascending=False)
+    couleurs = [th.ROUGE if v >= 45 else th.BLEU for v in d.pct_insuffisant]
+    fig = go.Figure(go.Bar(
+        x=d.pct_insuffisant, y=d.libelle, orientation="h", marker_color=couleurs,
+        text=[th.fmt(v, "taux") for v in d.pct_insuffisant], textposition="outside",
+        textfont=dict(color=th.BLEU_FONCE, size=10),
+        hovertemplate="<b>%{y}</b><br>%{x:.1f} %<extra></extra>"))
+    fig.update_layout(xaxis=dict(title="Confort d'été insuffisant (%)",
+                                 range=[0, d.pct_insuffisant.max() * 1.2]),
+                      yaxis=dict(title="", autorange="reversed", tickfont=dict(size=10)))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(fig, 360, "Confort d'été insuffisant, par région"),
+        width="stretch")
+    st.caption(
+        "Contre-intuitif : le haut du classement est septentrional, le bas méditerranéen. "
+        "L'indicateur mesure le bâti, pas le climat — le Sud a une architecture historiquement "
+        "adaptée, le Nord a construit sans se protéger du soleil.")
+
+
+def tableau_qualite(qua_f, con):
+    noms = dl.noms_departements()
+    conf = con[con.dimension == "par_departement"][["cle", "pct_insuffisant"]]
+    conf = conf.rename(columns={"cle": "dep"})
+    d = qua_f.merge(conf, on="dep", how="left")
+    return pd.DataFrame({
+        "Dép.": d.dep,
+        "Département": d.dep.map(noms).fillna(""),
+        "Passoires": d.taux_passoires.map(lambda v: th.fmt(v, "taux")),
+        "Coût énergie": d.cout_median.map(lambda v: th.fmt(v, "euro")),
+        "Part du revenu": d.part_cout_revenu.map(lambda v: th.fmt(v, "taux")),
+        "Suroccupation": d.taux_suroccupation.map(lambda v: th.fmt(v, "taux")),
+        "Confort d'été insuffisant": d.pct_insuffisant.map(lambda v: th.fmt(v, "taux")),
+        "Diagnostics": d.n_dpe.map(lambda v: th.fmt(v, "entier")),
+    }).sort_values("Dép.").reset_index(drop=True)
+
+
 # ---------- navigation ----------
 def main():
     st.sidebar.markdown("### Que Choisir Ensemble")
@@ -950,7 +1189,8 @@ def main():
         vue_ensemble()
     else:
         for onglet, contenu in zip(st.tabs(ONGLETS),
-                                   [vue_ensemble, parc_locatif, accession, parc_social]):
+                                   [vue_ensemble, parc_locatif, accession, parc_social,
+                                    qualite_parc]):
             with onglet:
                 contenu()
 

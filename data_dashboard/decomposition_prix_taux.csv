@@ -1,7 +1,7 @@
 ordre,etape,scenario,surface_m2,effet_m2,part_pct,n_communes_panel
-prix_puis_taux,1,prix 2021 + taux 2021,114.691,,,12915
-prix_puis_taux,2,prix 2025 + taux 2021,107.781,-6.91037,26.5168,12915
-prix_puis_taux,3,prix 2025 + taux 2025,88.6307,-19.15,73.4832,12915
-taux_puis_prix,1,prix 2021 + taux 2021,114.691,,,12915
-taux_puis_prix,2,prix 2021 + taux 2025,94.3132,-20.3778,78.1946,12915
-taux_puis_prix,3,prix 2025 + taux 2025,88.6307,-5.68257,21.8054,12915
+prix_puis_taux,1,prix 2021 + taux 2021,114.690989257,,,12915
+prix_puis_taux,2,prix 2025 + taux 2021,107.780618573,-6.91037068432,26.516824756,12915
+prix_puis_taux,3,prix 2025 + taux 2025,88.6306643581,-19.1499542147,73.483175244,12915
+taux_puis_prix,1,prix 2021 + taux 2021,114.690989257,,,12915
+taux_puis_prix,2,prix 2021 + taux 2025,94.3132328275,-20.3777564296,78.1945601545,12915
+taux_puis_prix,3,prix 2025 + taux 2025,88.6306643581,-5.68256846938,21.8054398455,12915

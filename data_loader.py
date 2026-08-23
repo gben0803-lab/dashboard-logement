@@ -59,6 +59,12 @@ def decomposition():
 
 
 @st.cache_data(show_spinner=False)
+def qualite_national():
+    d = _lire("qualite_national.csv").set_index("cle")
+    return d
+
+
+@st.cache_data(show_spinner=False)
 def noms_departements():
     t = tension()[["dep", "nom"]].dropna()
     return dict(zip(t.dep, t.nom))
