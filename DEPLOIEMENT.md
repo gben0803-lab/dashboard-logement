@@ -118,7 +118,23 @@ réseau. Committer ensuite `data_dashboard/`.
 Le confort d'été fait exception : il dérive d'une extraction API figée au 27 juillet 2026,
 non reconstructible depuis les bases livrées. Voir `METHODOLOGIE_DONNEES.md` §4.
 
-## 8. Démarrage local
+## 8. Le cache et la fraîcheur des données — à ne pas casser
+
+`@st.cache_data` construit sa clé à partir du **code de la fonction** et de ses **arguments**,
+jamais du contenu des fichiers lus. Une fonction de chargement sans argument garde donc
+indéfiniment la version lue au premier démarrage : sur Streamlit Cloud, un `git push` qui ne
+touche qu'un CSV met à jour le dépôt **sans que l'application relise le fichier**, puisque le
+processus survit au déploiement.
+
+`data_loader.py` passe donc au cache une **empreinte du fichier** — taille et date de
+modification en nanosecondes. Toute régénération de `data_dashboard/` invalide la clé et
+force la relecture.
+
+**Ne pas supprimer cet argument `empreinte` en croyant simplifier.** Sans lui, l'application
+peut servir des chiffres périmés sans lever la moindre erreur — le cas le plus dangereux,
+puisqu'il ne se voit pas.
+
+## 9. Démarrage local
 
 ```
 streamlit run app.py

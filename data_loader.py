@@ -1,7 +1,12 @@
 """
 data_loader.py — Mission 26004 / Que Choisir Ensemble
 Chargement des agregats de data_dashboard/. Chemins relatifs uniquement,
-codes geographiques lus en texte, cache Streamlit sur chaque lecture.
+codes geographiques lus en texte.
+
+Le cache est indexe sur une empreinte du fichier (taille et date de
+modification) : sans elle, @st.cache_data conserve indefiniment la version
+lue au premier demarrage, puisque la cle de cache ne depend que du code de la
+fonction. Un fichier regenere ne serait jamais relu tant que le processus vit.
 """
 
 import os
@@ -13,60 +18,76 @@ DOSSIER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_dashboa
 
 TYPES_GEO = {"insee_c": str, "dep": str, "reg": str, "cle": str}
 
+FICHIERS = {
+    "communes": "communes_acces.csv",
+    "tension": "departements_tension.csv",
+    "qualite": "departements_qualite.csv",
+    "series": "series_temporelles.csv",
+    "confort": "confort_ete.csv",
+    "villes": "villes.csv",
+    "decomposition": "decomposition_prix_taux.csv",
+    "qualite_national": "qualite_national.csv",
+}
 
-def _lire(nom):
+
+# ---------- empreinte du fichier, pour invalider le cache a bon escient ----------
+def _empreinte(nom):
     chemin = os.path.join(DOSSIER, nom)
     if not os.path.exists(chemin):
         st.error(f"Fichier absent : data_dashboard/{nom}. "
                  "Lancer `python pipeline/build_dashboard_data.py` avant de démarrer.")
         st.stop()
+    infos = os.stat(chemin)
+    return f"{infos.st_size}-{infos.st_mtime_ns}"
+
+
+@st.cache_data(show_spinner=False)
+def _charger(nom, empreinte):
+    chemin = os.path.join(DOSSIER, nom)
     entetes = pd.read_csv(chemin, nrows=0).columns
     types = {c: t for c, t in TYPES_GEO.items() if c in entetes}
     return pd.read_csv(chemin, dtype=types, low_memory=False)
 
 
-@st.cache_data(show_spinner=False)
+def _table(cle):
+    nom = FICHIERS[cle]
+    return _charger(nom, _empreinte(nom))
+
+
+# ---------- acces aux tables ----------
 def communes():
-    return _lire("communes_acces.csv")
+    return _table("communes")
 
 
-@st.cache_data(show_spinner=False)
 def tension():
-    return _lire("departements_tension.csv")
+    return _table("tension")
 
 
-@st.cache_data(show_spinner=False)
 def qualite():
-    return _lire("departements_qualite.csv")
+    return _table("qualite")
 
 
-@st.cache_data(show_spinner=False)
 def series():
-    return _lire("series_temporelles.csv")
+    return _table("series")
 
 
-@st.cache_data(show_spinner=False)
 def confort():
-    return _lire("confort_ete.csv")
+    return _table("confort")
 
 
-@st.cache_data(show_spinner=False)
 def villes():
-    return _lire("villes.csv")
+    return _table("villes")
 
 
-@st.cache_data(show_spinner=False)
 def decomposition():
-    return _lire("decomposition_prix_taux.csv")
+    return _table("decomposition")
 
 
-@st.cache_data(show_spinner=False)
 def qualite_national():
-    d = _lire("qualite_national.csv")
+    d = _table("qualite_national")
     return {str(c): float(v) for c, v in zip(d["cle"], d["valeur"])}
 
 
-@st.cache_data(show_spinner=False)
 def noms_departements():
     t = tension()[["dep", "nom"]].dropna()
     return dict(zip(t.dep, t.nom))
