@@ -20,9 +20,31 @@ import numpy as np
 import pandas as pd
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PHASE2 = os.path.join(RACINE, "FINDINGS", "Phase2")
-BASES = os.path.join(RACINE, "Base de données")
 SORTIE = os.path.join(RACINE, "data_dashboard")
+
+# Les sources auditees (FINDINGS/, Base de donnees/) vivent dans le dossier de mission,
+# hors du depot. Ordre de resolution : variable d'environnement, puis dossier voisin.
+CANDIDATS_SOURCE = [
+    os.environ.get("QCE_SOURCE_ROOT", ""),
+    RACINE,
+    os.path.join(os.path.dirname(RACINE), "MISSION JE"),
+]
+
+
+def racine_sources():
+    for c in CANDIDATS_SOURCE:
+        if c and os.path.isdir(os.path.join(c, "FINDINGS", "Phase2")):
+            return c
+    raise SystemExit(
+        "Sources introuvables. Le pipeline a besoin de FINDINGS/Phase2 et de "
+        "« Base de données », qui vivent dans le dossier de mission.\n"
+        "Définir QCE_SOURCE_ROOT, par exemple :\n"
+        '  QCE_SOURCE_ROOT="$HOME/Desktop/MISSION JE" python pipeline/build_dashboard_data.py')
+
+
+SOURCES = racine_sources()
+PHASE2 = os.path.join(SOURCES, "FINDINGS", "Phase2")
+BASES = os.path.join(SOURCES, "Base de données")
 
 RATIO_SOCIAL_2016 = 4.06
 RATIO_SOCIAL_2025 = 7.34

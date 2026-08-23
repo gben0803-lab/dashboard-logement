@@ -96,8 +96,19 @@ définit toujours `title=dict(text=titre)`.
 
 ## 7. Mise à jour des données
 
+Le dépôt ne contient pas les sources auditées (`FINDINGS/`, `Base de données/`) : elles pèsent
+plusieurs gigaoctets et vivent dans le dossier de mission. Le pipeline les résout dans cet
+ordre : variable `QCE_SOURCE_ROOT`, puis la racine du dépôt, puis le dossier voisin
+`../MISSION JE`.
+
 ```
 python pipeline/build_dashboard_data.py
+```
+
+Depuis un autre emplacement :
+
+```
+QCE_SOURCE_ROOT="$HOME/Desktop/MISSION JE" python pipeline/build_dashboard_data.py
 ```
 
 Le script relit les sorties de `FINDINGS/`, **exécute 23 contrôles de conformité au rapport**
