@@ -127,7 +127,7 @@ def kpi(libelle, valeur, note="", critique=False):
 
 def perimetre_modeste(n_communes=5163, inline=False):
     """Rappel obligatoire : le menage modeste ne porte pas sur le territoire entier."""
-    texte = (f"Le ménage modeste (1<sup>er</sup> décile) porte sur "
+    texte = (f"Le ménage modeste (1er décile) porte sur "
              f"<b>{fmt(n_communes)} communes</b> — celles pour lesquelles l'INSEE publie le "
              f"premier décile de revenu — et non sur l'ensemble du territoire.")
     if inline:
@@ -145,9 +145,12 @@ def mise_en_forme_graphique(fig, hauteur=420, titre=""):
         height=hauteur,
         font=dict(family=POLICE, color=BLEU_FONCE, size=13),
         paper_bgcolor=BLANC, plot_bgcolor=BLANC,
-        margin=dict(l=10, r=10, t=40 if titre else 20, b=10),
-        title=dict(text=titre, font=dict(color=BLEU_FONCE, size=15)),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=10, r=10, t=86 if titre else 34, b=10),
+        title=dict(text=titre, font=dict(color=BLEU_FONCE, size=15),
+                   x=0, xanchor="left", y=1, yanchor="top", yref="container",
+                   pad=dict(t=12, l=6)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.015, xanchor="left", x=0,
+                    font=dict(size=11)),
         hoverlabel=dict(bgcolor=BLANC, bordercolor=BLEU, font_color=BLEU_FONCE),
     )
     fig.update_xaxes(gridcolor=GRIS, zerolinecolor=GRIS, linecolor=GRIS)

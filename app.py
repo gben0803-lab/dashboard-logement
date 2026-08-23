@@ -225,7 +225,7 @@ def graphique_serie(ser):
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=n.annee, y=n.surface_financable, name="Surface finançable",
-        marker_color=[th.ROUGE if a == n.annee.max() else th.BLEU for a in n.annee],
+        marker_color=[th.BLEU_FONCE if a == n.annee.min() else th.BLEU for a in n.annee],
         text=[th.fmt(v, "surface") for v in n.surface_financable],
         textposition="outside", textfont=dict(color=th.BLEU_FONCE),
         hovertemplate="<b>%{x}</b><br>%{y:.1f} m²<extra></extra>"))
@@ -427,6 +427,13 @@ def graphique_categories(fiable, suffixe):
         + th.perimetre_modeste(inline=True).replace("<b>", "").replace("</b>", ""))
 
 
+def extremes(d, tout, n=15):
+    """Limite un classement aux n premiers et n derniers, sauf demande contraire."""
+    if tout or len(d) <= 2 * n:
+        return d, False
+    return pd.concat([d.head(n), d.tail(n)]), True
+
+
 def graphique_departements(base, col_effort, profil, segment):
     if base.empty:
         st.warning("Aucune commune documentée sur ce périmètre.")
@@ -436,6 +443,9 @@ def graphique_departements(base, col_effort, profil, segment):
              .reset_index().rename(columns={"median": "effort", "count": "n"}))
     d = d[d.n >= 3].sort_values("effort")
     d["nom"] = d.dep.map(noms).fillna(d.dep)
+    total = len(d)
+    tout = st.checkbox(f"Afficher les {total} départements", key="tous_dep_effort")
+    d, tronque = extremes(d, tout)
 
     couleurs = [th.ROUGE if v > SEUIL_EFFORT else th.BLEU for v in d.effort]
     fig = go.Figure(go.Bar(
@@ -446,14 +456,15 @@ def graphique_departements(base, col_effort, profil, segment):
     fig.add_vline(x=SEUIL_EFFORT, line=dict(color=th.BLEU_FONCE, dash="dash", width=1.5))
     fig.update_layout(xaxis=dict(title="Taux d'effort médian (%)"),
                       yaxis=dict(title="", tickfont=dict(size=9)))
-    hauteur = max(420, 16 * len(d))
+    hauteur = max(420, 18 * len(d))
     st.plotly_chart(
         th.mise_en_forme_graphique(fig, hauteur, f"{profil} · {segment.split(' (')[0]}"),
         width="stretch")
     st.caption(
         f"Médiane des taux communaux, départements documentés sur au moins 3 communes. "
         f"La ligne marque le seuil de 33 %. "
-        f"{int((d.effort > SEUIL_EFFORT).sum())} département(s) au-delà.")
+        + (f"Affichage des 15 départements les moins contraints et des 15 plus contraints, "
+           f"sur {total}." if tronque else f"{total} départements affichés."))
 
 
 def tableau_villes(vil, deps, modeste):
@@ -576,6 +587,9 @@ def graphique_surface_departements(fiable):
                .reset_index().rename(columns={"median": "surface", "count": "n"}))
     d = d[d.n >= 3].sort_values("surface", ascending=False)
     d["nom"] = d.dep.map(noms).fillna(d.dep)
+    total = len(d)
+    tout = st.checkbox(f"Afficher les {total} départements", key="tous_dep_surface")
+    d, tronque = extremes(d, tout)
 
     couleurs = [th.ROUGE if v < SURFACE_FAMILIALE else th.BLEU for v in d.surface]
     fig = go.Figure(go.Bar(
@@ -587,20 +601,21 @@ def graphique_surface_departements(fiable):
     fig.update_layout(xaxis=dict(title="Surface finançable médiane (m²)"),
                       yaxis=dict(title="", tickfont=dict(size=9)))
     st.plotly_chart(
-        th.mise_en_forme_graphique(fig, max(420, 16 * len(d)),
+        th.mise_en_forme_graphique(fig, max(420, 18 * len(d)),
                                    "Surface finançable médiane par département, 2025"),
         width="stretch")
     st.caption(
         f"Médiane des surfaces communales, départements documentés sur au moins 3 communes. "
         f"La ligne marque les {SURFACE_FAMILIALE} m² du logement familial de référence. "
-        f"{int((d.surface < SURFACE_FAMILIALE).sum())} département(s) en dessous.")
+        + (f"Affichage des 15 départements les plus favorables et des 15 plus contraints, "
+           f"sur {total}." if tronque else f"{total} départements affichés."))
 
 
 def graphique_serie_accession(nat):
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=nat.annee, y=nat.surface_financable, name="Surface finançable",
-        marker_color=[th.ROUGE if a == nat.annee.max() else th.BLEU for a in nat.annee],
+        marker_color=[th.BLEU_FONCE if a == nat.annee.min() else th.BLEU for a in nat.annee],
         text=[th.fmt(v, "surface") for v in nat.surface_financable],
         textposition="outside", textfont=dict(color=th.BLEU_FONCE),
         customdata=np.stack([nat.taux_pct, nat.prix_m2_median, nat.n_communes], axis=-1),
@@ -644,7 +659,7 @@ def graphique_decomposition(dec):
                        text=f"<b>{th.fmt(d1.loc[3, 'effet_m2'], 'surface')}</b>",
                        font=dict(color=th.ROUGE, size=13))
     fig.update_layout(yaxis=dict(title="m² finançables", range=[0, vals[0] * 1.25]),
-                      xaxis=dict(title="", tickfont=dict(size=10)))
+                      xaxis=dict(title="", type="category", tickfont=dict(size=10)))
     st.plotly_chart(
         th.mise_en_forme_graphique(fig, 380, "Décomposition de la perte entre prix et taux"),
         width="stretch")
