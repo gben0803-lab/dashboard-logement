@@ -2,9 +2,10 @@
 """
 build_dashboard_data.py — Mission 26004 / Que Choisir Ensemble
 
-Construit data_dashboard/ a partir des sorties deja auditees de FINDINGS/.
+Construit data_dashboard/ a partir des sorties deja auditees du pipeline de
+mission (02_DONNEES_INTERMEDIAIRES/).
 Aucune lecture des bases brutes : DVF_clean, DPE_clean et RPLS_clean ne sont
-jamais ouverts. Les CSV de FINDINGS/ font foi.
+jamais ouverts. Les CSV de 02_DONNEES_INTERMEDIAIRES/ font foi.
 
 Sorties : communes_acces.csv, departements_tension.csv, departements_qualite.csv,
           series_temporelles.csv, confort_ete.csv, villes.csv,
@@ -22,29 +23,35 @@ import pandas as pd
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SORTIE = os.path.join(RACINE, "data_dashboard")
 
-# Les sources auditees (FINDINGS/, Base de donnees/) vivent dans le dossier de mission,
-# hors du depot. Ordre de resolution : variable d'environnement, puis dossier voisin.
+# Les sorties auditees du pipeline vivent dans le dossier de mission, hors du depot.
+# Ordre de resolution : variable d'environnement, racine du depot, puis dossiers voisins.
+SORTIES_PIPELINE = "02_DONNEES_INTERMEDIAIRES"
+BASES_SOURCES = "00_SOURCES"
+
 CANDIDATS_SOURCE = [
     os.environ.get("QCE_SOURCE_ROOT", ""),
     RACINE,
+    os.path.dirname(RACINE),
     os.path.join(os.path.dirname(RACINE), "MISSION JE"),
 ]
 
 
 def racine_sources():
     for c in CANDIDATS_SOURCE:
-        if c and os.path.isdir(os.path.join(c, "FINDINGS", "Phase2")):
+        if c and os.path.isdir(os.path.join(c, SORTIES_PIPELINE)) \
+             and os.path.isdir(os.path.join(c, BASES_SOURCES)):
             return c
     raise SystemExit(
-        "Sources introuvables. Le pipeline a besoin de FINDINGS/Phase2 et de "
-        "« Base de données », qui vivent dans le dossier de mission.\n"
-        "Définir QCE_SOURCE_ROOT, par exemple :\n"
+        f"Sources introuvables. Ce script a besoin de {SORTIES_PIPELINE}/ et de "
+        f"{BASES_SOURCES}/, qui vivent dans le dossier de mission et ne sont pas "
+        "versionnes avec l'application.\n"
+        "Definir QCE_SOURCE_ROOT, par exemple :\n"
         '  QCE_SOURCE_ROOT="$HOME/Desktop/MISSION JE" python pipeline/build_dashboard_data.py')
 
 
 SOURCES = racine_sources()
-PHASE2 = os.path.join(SOURCES, "FINDINGS", "Phase2")
-BASES = os.path.join(SOURCES, "Base de données")
+PHASE2 = os.path.join(SOURCES, SORTIES_PIPELINE)
+BASES = os.path.join(SOURCES, BASES_SOURCES)
 
 REGIONS = {
     "01": "Guadeloupe", "02": "Martinique", "03": "Guyane", "04": "La Réunion",
@@ -108,7 +115,7 @@ def charger():
     src["villes_achat"] = lire(os.path.join(PHASE2, "pouvoir_achat_grandes_villes.csv"))
     src["decomp"] = lire(os.path.join(PHASE2, "serie_surface_decomposition.csv"))
     src["rp"] = normalise_colonnes(pd.read_csv(
-        os.path.join(BASES, "INSEE_RP", "INSEE_logement_2022_dept.csv"),
+        os.path.join(PHASE2, "INSEE_logement_2022_dept.csv"),
         sep=";", dtype={"dept_code": str}))
     with open(os.path.join(PHASE2, "confort_ete_aggregats.json"), encoding="utf-8") as fh:
         src["confort"] = json.load(fh)

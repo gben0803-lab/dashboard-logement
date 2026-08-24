@@ -16,12 +16,15 @@ data_loader.py                chargement cache des agregats
 requirements.txt              versions epinglees
 runtime.txt                   version de Python
 .streamlit/config.toml        bloc [theme]
-data_dashboard/               5 CSV, 4,58 Mo au total
+data_dashboard/               8 CSV, 6,97 Mo au total
+images/                       3 cartes du rapport (336 Ko)
 pipeline/build_dashboard_data.py   producteur des agregats (pour la mise a jour)
 METHODOLOGIE_DONNEES.md       lineage et pieges de calcul
 ```
 
-Total ≈ 4,7 Mo — très en dessous des limites GitHub.
+Total ≈ 12 Mo — très en dessous des limites GitHub. Le plus gros fichier,
+`data_dashboard/communes_acces.csv`, pèse 6,9 Mo ; le plafond de l'interface web est de 25 Mo
+par fichier (100 Mo en ligne de commande).
 
 **Ne pas pousser** `.claude/launch.json` : il contient un chemin absolu vers un
 environnement virtuel local, utile seulement en développement.
@@ -96,10 +99,16 @@ définit toujours `title=dict(text=titre)`.
 
 ## 7. Mise à jour des données
 
-Le dépôt ne contient pas les sources auditées (`FINDINGS/`, `Base de données/`) : elles pèsent
-plusieurs gigaoctets et vivent dans le dossier de mission. Le pipeline les résout dans cet
-ordre : variable `QCE_SOURCE_ROOT`, puis la racine du dépôt, puis le dossier voisin
-`../MISSION JE`.
+Le dépôt ne contient pas les sources auditées : elles pèsent plusieurs gigaoctets et vivent
+dans le dossier de mission. Le pipeline les résout dans cet ordre : variable
+`QCE_SOURCE_ROOT`, puis la racine du dépôt, puis le dossier voisin `../MISSION JE`.
+
+> **Corrigé le 24 août 2026.** Le script cherchait ses entrées sous `FINDINGS/Phase2/` et
+> `Base de données/`, deux dossiers disparus à la réorganisation ; il s'arrêtait sur
+> `Sources introuvables` quelle que soit la valeur de `QCE_SOURCE_ROOT`. Il lit désormais
+> `02_DONNEES_INTERMEDIAIRES/` et `00_SOURCES/`, et détecte la racine de mission en exigeant
+> la présence des deux. Après correction, les huit CSV régénérés sont **identiques au md5** à
+> ceux du dépôt et les 47 contrôles passent.
 
 ```
 python pipeline/build_dashboard_data.py
@@ -111,7 +120,7 @@ Depuis un autre emplacement :
 QCE_SOURCE_ROOT="$HOME/Desktop/MISSION JE" python pipeline/build_dashboard_data.py
 ```
 
-Le script relit les sorties de `FINDINGS/`, **exécute 23 contrôles de conformité au rapport**
+Le script relit les sorties du pipeline de mission, **exécute 47 contrôles de conformité au rapport**
 et **n'écrit rien si l'un d'eux échoue**. Il ne lit aucune base brute et n'émet aucun appel
 réseau. Committer ensuite `data_dashboard/`.
 

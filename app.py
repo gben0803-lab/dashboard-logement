@@ -31,6 +31,39 @@ SEUILS_SENSIBILITE = (35, 40, 45)
 ETIQUETTES_DPE = ["A", "B", "C", "D", "E", "F", "G"]
 DATE_EXTRACTION_ADEME = "27 juillet 2026"
 
+# Libelles d'affichage des tableaux de detail. Les CSV exportes conservent les noms
+# techniques : ils sont la cle entre le pipeline, le dashboard et la table QCE, et sont
+# documentes dans le dictionnaire de METHODOLOGIE_DONNEES.md. Ne renommer qu'a l'affichage.
+LIBELLES_COLONNES = {
+    "insee_c": "Code INSEE",
+    "libgeo": "Commune",
+    "dep": "Dép.",
+    "effort_median_familial": "Effort · ménage médian",
+    "effort_d1_familial": "Effort · ménage modeste",
+    "effort_median_petit": "Effort · ménage médian",
+    "effort_d1_petit": "Effort · ménage modeste",
+    "surface_financable": "Surface finançable",
+    "tension_2025": "Demandes / attribution",
+    "n_legs_dispo": "Indicateurs disponibles",
+    "triple_peine_median": "Triple peine",
+    "triple_peine_d1": "Triple peine · ménage modeste",
+    "loyer_familial": "Loyer mensuel",
+    "loyer_petit": "Loyer mensuel",
+    "revenu_menage_proxy": "Revenu du ménage médian",
+    "revenu_menage_d1": "Revenu du ménage modeste",
+    "prix_m2_tous": "Prix au m²",
+    "n_ventes_tous": "Ventes retenues",
+    "categorie_surface": "Catégorie de surface",
+}
+
+MENTION_EXPORT = ("Le fichier exporté conserve les noms techniques des colonnes, "
+                  "documentés dans METHODOLOGIE_DONNEES.md.")
+
+
+def libelles(df):
+    """Renomme pour l'affichage seulement. Le DataFrame exporte n'est pas touche."""
+    return df.rename(columns={c: LIBELLES_COLONNES.get(c, c) for c in df.columns})
+
 
 # ---------- filtres communs, rendus dans le corps de l'onglet ----------
 def selecteur_departements(conteneur, cle):
@@ -127,11 +160,11 @@ def vue_ensemble():
     gauche, droite = st.columns([3, 2], gap="large")
 
     with gauche:
-        st.subheader("Vacance des logements et tension du parc social")
+        st.subheader("L'écart tient au revenu, pas au territoire")
         st.caption(
-            "Chaque point est un département. Les pointillés marquent les médianes nationales. "
-            "Les logements vacants ne se situent pas là où les ménages attendent.")
-        graphique_vacance_tension(ten, qua, deps, annee)
+            "Logement familial, parc locatif privé. Le loyer est identique pour les deux "
+            "profils : seul le revenu change. La totalité de l'écart vient de là.")
+        graphique_ecart_profils(com_f)
 
     with droite:
         st.subheader("Le message principal")
@@ -160,17 +193,71 @@ entre demandes et attributions est passé de **{th.fmt(RATIO_SOCIAL_2016, 'ratio
     st.subheader("Érosion de la capacité d'achat, 2021-2025")
     graphique_serie(ser)
 
+    # le parc social : point de comparaison, pas le sujet
+    st.subheader("Vacance des logements et tension du parc social")
+    st.caption(
+        "Chaque point est un département. Les pointillés marquent les médianes nationales. "
+        "Les logements vacants ne se situent pas là où les ménages attendent. "
+        "Le parc social est ici le point de comparaison, non l'objet du diagnostic.")
+    graphique_vacance_tension(ten, qua, deps, annee)
+
     # tableau et export
     st.subheader("Synthèse départementale")
     tableau = synthese_departementale(ten_f, qua_f, com_f, annee, col_effort, col_triple)
     st.dataframe(tableau, width="stretch", hide_index=True, height=320)
     th.bouton_csv(tableau, f"qce_vue_ensemble_{annee}.csv")
+    st.caption(MENTION_EXPORT)
 
     th.source(
         "Sources : ANIL carte des loyers 2025 · INSEE Filosofi et recensement 2022 · "
         "DVF 2021-2025 · SNE 2025 · DPE ADEME. "
         "Agrégats produits par <code>pipeline/build_dashboard_data.py</code> depuis les sorties "
-        "auditées du rapport — 23 contrôles de conformité au vert.")
+        "auditées du rapport — 47 contrôles de conformité au vert.")
+
+
+def graphique_ecart_profils(com_f):
+    """Ecart d'effort locatif entre menage median et menage modeste, logement familial.
+
+    Les quatre valeurs affichees figurent parmi les controles de conformite au rapport :
+    14,8 / 20,8 pour le menage median, 29,5 / 42,7 pour le menage modeste, et 2,6 % /
+    86,6 % de communes au-dela du seuil de 33 %. Rien n'est recalcule ici.
+    """
+    fiable = com_f[com_f.fiable_loyer_familial == True]
+    med = fiable.effort_median_familial.dropna()
+    d1 = fiable.effort_d1_familial.dropna()
+    if med.empty or d1.empty:
+        st.warning("Aucune commune fiable sur ce périmètre.")
+        return
+
+    profils = ["Ménage médian", "Ménage modeste"]
+    valeurs = [med.median(), d1.median()]
+    parts = [100 * (med > SEUIL_EFFORT).mean(), 100 * (d1 > SEUIL_EFFORT).mean()]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=profils, y=valeurs, marker_color=[th.BLEU, th.ROUGE], width=0.5,
+        text=[th.fmt(v, "taux") for v in valeurs], textposition="outside",
+        textfont=dict(color=th.BLEU_FONCE, size=15),
+        hovertemplate="<b>%{x}</b><br>%{y:.1f} % du revenu<extra></extra>"))
+    fig.add_hline(
+        y=SEUIL_EFFORT, line=dict(color=th.GRIS, dash="dash", width=1.5),
+        annotation_text=f"Seuil de soutenabilité, {SEUIL_EFFORT} %",
+        annotation_position="top left",
+        annotation_font=dict(size=11, color=th.GRIS))
+    fig.update_layout(
+        xaxis=dict(title="", type="category"),
+        yaxis=dict(title="Part du revenu consacrée au loyer (%)",
+                   range=[0, max(valeurs) * 1.35]))
+    st.plotly_chart(
+        th.mise_en_forme_graphique(
+            fig, 430, "Effort locatif selon le profil de ménage, logement familial"),
+        width="stretch")
+    st.caption(
+        f"Loyer médian identique dans les deux cas. Le ménage médian y consacre "
+        f"**{th.fmt(valeurs[0], 'taux')}** de son revenu, le ménage modeste "
+        f"**{th.fmt(valeurs[1], 'taux')}**. Au-delà du seuil de {SEUIL_EFFORT} % : "
+        f"**{th.fmt(parts[0], 'taux')}** des communes pour le premier, "
+        f"**{th.fmt(parts[1], 'taux')}** pour le second.")
 
 
 def graphique_vacance_tension(ten, qua, deps, annee):
@@ -378,10 +465,11 @@ def parc_locatif():
         apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "taux"))
     for c_ in (f"loyer_{suffixe}", "revenu_menage_proxy", "revenu_menage_d1"):
         apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "euro"))
-    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
                "L'export contient l'intégralité du périmètre filtré.")
     th.bouton_csv(detail, f"qce_effort_locatif_{suffixe}.csv")
+    st.caption(MENTION_EXPORT)
 
     th.source(
         "Sources : ANIL carte des loyers 2025 × INSEE Filosofi. Le revenu est un revenu de "
@@ -571,10 +659,11 @@ def accession():
     apercu["prix_m2_tous"] = apercu.prix_m2_tous.map(lambda v: th.fmt(v, "euro"))
     apercu["revenu_menage_proxy"] = apercu.revenu_menage_proxy.map(lambda v: th.fmt(v, "euro"))
     apercu["surface_financable"] = apercu.surface_financable.map(lambda v: th.fmt(v, "surface"))
-    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
                "L'export contient l'intégralité du périmètre filtré.")
     th.bouton_csv(detail, "qce_surface_financable.csv")
+    st.caption(MENTION_EXPORT)
 
     th.source(
         "Sources : DVF 2021-2025 × INSEE Filosofi × Observatoire Crédit Logement / CSA. "
@@ -812,10 +901,11 @@ def parc_social():
         apercu[c_] = apercu[c_].map(lambda v: th.fmt(v, "taux"))
     apercu["surface_financable"] = apercu.surface_financable.map(lambda v: th.fmt(v, "surface"))
     apercu["tension_2025"] = apercu.tension_2025.map(lambda v: th.fmt(v, "ratio"))
-    st.dataframe(apercu, width="stretch", hide_index=True, height=280)
+    st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des communes à trois indicateurs. L'export contient les "
                f"{th.fmt(len(detail))} communes du périmètre filtré, complétude comprise.")
     th.bouton_csv(detail, "qce_cumul_exclusions.csv")
+    st.caption(MENTION_EXPORT)
 
     th.source(
         "Sources : SNE 2015-2025 (demandes actives et attributions) × ANIL × DVF × Filosofi. "
@@ -946,8 +1036,9 @@ def graphique_sensibilite(com_f, ten):
 def qualite_parc():
     th.bandeau(
         "Qualité du parc de logements",
-        "Trois dimensions du mal-logement qui ne se superposent pas géographiquement — "
-        "et une quatrième, absente du diagnostic remis au consommateur : le confort d'été.")
+        "Trois dimensions du mal-logement aux géographies distinctes — les deux dimensions "
+        "énergétiques vont de pair, la suroccupation les contredit — et une quatrième, absente "
+        "du diagnostic remis au consommateur : le confort d'été.")
 
     qua = dl.qualite()
     qnat = dl.qualite_national()
@@ -991,12 +1082,17 @@ def qualite_parc():
 
     st.caption(
         "La dégradation énergétique est rurale et liée au bâti ancien ; la suroccupation est "
-        "métropolitaine et ultramarine. Les départements les plus touchés par l'une comptent "
-        "parmi les moins touchés par l'autre — c'est pourquoi le rapport ne construit aucun "
-        "indice synthétique.")
+        "métropolitaine et ultramarine.")
 
-    # geographie
-    st.subheader(f"{dimension} par département")
+    # les trois geographies, cote a cote
+    st.subheader("Trois cartes, à lire ensemble")
+    cartes_qualite()
+
+    # exploration interactive, sensible au filtre departemental
+    st.subheader(f"Explorer une dimension : {dimension.lower()}")
+    st.caption(
+        "Contrairement aux trois cartes ci-dessus, qui sont nationales et figées sur les "
+        "figures du rapport, ce classement suit le filtre départemental en tête d'onglet.")
     graphique_qualite_departements(qua_f, dimension)
 
     # confort d'ete
@@ -1022,6 +1118,7 @@ def qualite_parc():
     tableau = tableau_qualite(qua_f, con)
     st.dataframe(tableau, width="stretch", hide_index=True, height=320)
     th.bouton_csv(qua_f, "qce_qualite_parc.csv")
+    st.caption(MENTION_EXPORT)
 
     st.info(
         "Deux éléments du rapport ne figurent pas ici, faute de source reproductible depuis les "
@@ -1035,6 +1132,55 @@ def qualite_parc():
         f"extraction API du {DATE_EXTRACTION_ADEME}) · INSEE recensement 2022 pour la "
         "suroccupation, calculée comme une somme pondérée par les résidences principales et non "
         "comme une médiane communale.")
+
+
+CARTES_QUALITE = [
+    ("images/carte_passoires.png", "Passoires énergétiques",
+     "Part de logements classés F ou G. Moyenne pondérée par le nombre de diagnostics."),
+    ("images/carte_cout.png", "Coût de l'énergie",
+     "Coût énergétique annuel médian par logement."),
+    ("images/carte_suroccupation.png", "Suroccupation",
+     "Part des résidences principales suroccupées, source INSEE."),
+]
+
+
+def cartes_qualite():
+    """Les figures 11, 12 et 13 du rapport, cote a cote.
+
+    Ce sont les PNG produits par 01_PIPELINE/40_figures/v3_bloc5_qualite.py, repris tels
+    quels : passoires ponderees par n_dpe, suroccupation issue de la valeur departementale
+    INSEE. Aucune valeur n'est recalculee ici. Elles sont nationales et ne suivent pas le
+    filtre departemental — c'est voulu, la demonstration porte sur la France entiere.
+    """
+    colonnes = st.columns(3, gap="medium")
+    for colonne, (chemin, titre, note) in zip(colonnes, CARTES_QUALITE):
+        with colonne:
+            st.markdown(f"**{titre}**")
+            st.image(chemin, width="stretch")
+            st.caption(note)
+
+    st.markdown("")
+    st.info(
+        "**Ces trois géographies ne se recouvrent pas de la même façon.** Les deux dimensions "
+        "énergétiques vont ensemble — la corrélation de rang entre part de passoires et coût "
+        "de l'énergie atteint **+0,69**. La suroccupation, elle, les contredit : **−0,49** "
+        "avec les passoires, **−0,59** avec le coût. Un département cher à chauffer et mal "
+        "classé est donc, en règle générale, un département **peu** suroccupé.\n\n"
+        "La Creuse en est l'illustration : **31,4 %** de passoires, le taux le plus élevé de "
+        "France, pour **2,6 %** de suroccupation seulement. À l'inverse, Paris affiche "
+        "**31,4 %** de suroccupation — deuxième rang derrière la Guyane, à 35,8 % — et l'un "
+        "des coûts énergétiques les plus faibles de métropole, **1 021 €**, cinquième plus bas "
+        "sur 96, quand le Cantal atteint **2 487 €**. Le parc parisien n'est pas pour autant "
+        "performant : avec **17,9 %** de passoires, il se classe au 10ᵉ rang national, près du "
+        "double de la moyenne française.\n\n"
+        "C'est cette structure — deux dimensions solidaires, une troisième à rebours — qui a "
+        "conduit à **écarter tout indice composite** : additionner ces trois grandeurs "
+        "reviendrait à faire s'annuler des situations de mal-logement bien réelles.",
+        icon="🗺️")
+    st.caption(
+        "Figures 11, 12 et 13 du rapport · corrélations de Spearman calculées sur les "
+        "100 départements documentés. Minima nationaux : Martinique, 786 € et 2,0 % de "
+        "passoires.")
 
 
 def graphique_qualite_departements(qua_f, dimension):
