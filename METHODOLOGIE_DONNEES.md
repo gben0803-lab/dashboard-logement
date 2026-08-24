@@ -25,7 +25,7 @@ Mis à jour le 24 août 2026.
 01_PIPELINE/30_indicateurs/   effort locatif, surface finançable, triple peine, qualité
 01_PIPELINE/40_figures/       les 18 figures du rapport
       ▼
-02_DONNEES_INTERMEDIAIRES/    27 CSV + 39 PNG — le témoin des 66 empreintes
+02_DONNEES_INTERMEDIAIRES/    27 CSV + 34 PNG — le témoin des 61 empreintes
       ▼
 pipeline/build_dashboard_data.py    (dépôt dashboard-logement)
       ▼
@@ -36,8 +36,8 @@ data_dashboard/       8 CSV, 6,97 Mo — ce que lit l'application
 
 - `02_DONNEES_INTERMEDIAIRES/confort_ete_aggregats.json` — extraction API figée, non
   reconstructible depuis `00_SOURCES/` (§4) ;
-- `00_SOURCES/INSEE_RP/INSEE_logement_2022_dept.csv` — reconstruit pendant l'audit, il était
-  une orpheline d'entrée (§1).
+- `02_DONNEES_INTERMEDIAIRES/INSEE_logement_2022_dept.csv` — reconstruit pendant l'audit, il
+  était une orpheline d'entrée (§1).
 
 > **Corrigé le 24 août 2026.** `build_dashboard_data.py` résolvait encore ses entrées sous
 > `FINDINGS/Phase2/` et `Base de données/`, chemins disparus à la réorganisation ; le script
@@ -128,11 +128,18 @@ tableau n° 9 du rapport. `departements_tension.csv` porte les deux colonnes, d�
 
 ## 3. Ratio du parc social — valeurs alignées après audit
 
-Le dashboard utilise **4,06 (2016) → 7,34 (2025)**, soit une progression de 81 %.
+Le dashboard **et le rapport** publient désormais **4,06 (2016) → 7,34 (2025)**, soit une
+progression de 81 %.
 
-Le rapport publie encore 3,8 → 7,0 (+82 %), valeurs qu'aucune agrégation des bases livrées ne
-reproduit — cinq périmètres testés. L'arbitrage a été rendu le 22 août 2026 : **alignement sur
-le code**. La correction du rapport est en cours — voir `rapport/AVERTISSEMENT.md`.
+Les versions antérieures du rapport portaient 3,8 → 7,0 (+82 %), valeurs qu'aucune agrégation
+des bases livrées ne reproduit — cinq périmètres testés. L'arbitrage a été rendu le 22 août
+2026 : **alignement sur le code**. La correction est portée au rapport depuis le 24 août, avec
+une note de méthode en page 5 qui explique l'écart avec la médiane départementale (5,17 en
+2025), un ratio de ratios ne constituant pas un ratio.
+
+**Publier deux décimales rend la progression vérifiable** : 7,34 / 4,06 = +80,8 %, soit 81 %
+après arrondi. Les valeurs arrondies à une décimale ne le permettaient pas — 7,3 / 4,1 donne
++78 %, trois points d'écart avec le pourcentage publié.
 
 ---
 
@@ -149,6 +156,20 @@ dashboard n'émet **aucun appel réseau**.
 Pour une mise à jour annuelle, QCE devra re-télécharger le jeu ADEME **en incluant ces six
 colonnes**, puis rejouer `01_PIPELINE/00_acquisition/confort_ete_agg.py`. Les effectifs
 changeront : la base ADEME est alimentée en continu.
+
+### 4.0 Les figures du chapitre sont reproductibles — leur mise en page ne l'est pas
+
+Les figures 14 à 18 du rapport sont bien produites par `01_PIPELINE/40_figures/confort_ete_charts.py`,
+aux mêmes valeurs. Ce qui est **inséré** dans le document a subi une mise en page manuelle :
+redimensionnement, le PDF n'étant pas net à la taille d'origine, et un pied de source complété
+de la date d'extraction — « …(dpe03existant), extraction du 27 juillet 2026 — TSE Junior
+Études » — que le script ne produit pas.
+
+Régénérer les figures redonne donc les mêmes graphiques, **au format d'origine et sans la date
+dans le pied**. Le geste de mise en page est à refaire à l'insertion. Les sept recadrages de
+`03_FIGURES/recadrages_inseres_dans_le_rapport/` relèvent du même travail.
+
+**Aucune valeur n'est concernée.**
 
 ### 4.1 Dérive mesurée de la base ADEME — et pourquoi elle ne biaise pas les résultats
 
@@ -509,7 +530,8 @@ Dans l'ordre, et sans sauter le dernier point.
 1. **Nouveau millésime DVF, DPE ou RPLS** — déposer les bruts dans `00_SOURCES/`, puis
    `01_PIPELINE/run_all_from_raw.sh` (2 h 30 à 4 h, 6 Go libres exigés).
 2. **Modification du code seul** — `01_PIPELINE/run_all.sh` (environ 2 minutes), puis
-   comparer les 66 empreintes au témoin de reproductibilité. *(Ce témoin vit dans le dossier
+   comparer les 61 empreintes au témoin de reproductibilité, et les 10 cartes interactives à leur
+   empreinte de contenu. *(Ce témoin vit dans le dossier
    de mission, pas dans cette livraison.)*
 3. **Confort d'été** — voir §4 : re-télécharger en incluant les six colonnes, et documenter la
    nouvelle date d'extraction.
