@@ -212,8 +212,10 @@ Deux extractions coexistent dans le projet. Ne pas les mélanger.
 | National (API) | 27/07/2026 | 15 280 141 | effectifs nationaux, **tout le confort d'été** |
 | Communal (`DPE_clean.csv`) | 09/06/2026 | 14 108 204 | **tous les indicateurs communaux et départementaux** |
 
-Écart de 2,4 %, imputable à l'alimentation continue de la base. Les deux sont justes ; ils ne
-sont simplement pas rapprochables entre eux.
+L'écart de 7,7 % entre les deux mesures a deux origines. Sept semaines de dépôts
+supplémentaires expliquent 2,4 % ; le solde tient au nettoyage, les diagnostics ne pouvant
+être rattachés à une commune étant écartés du calcul communal. Les deux mesures sont justes ;
+elles ne sont simplement pas rapprochables entre elles.
 
 **Un troisième effectif circule** et n'est ni l'un ni l'autre : `qualite_national.csv` publie
 `n_dpe = 13 995 644`, libellé « Diagnostics rattachés à une commune ». C'est le sous-ensemble
