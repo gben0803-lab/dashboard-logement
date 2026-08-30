@@ -56,8 +56,9 @@ LIBELLES_COLONNES = {
     "categorie_surface": "Catégorie de surface",
 }
 
-MENTION_EXPORT = ("Le fichier exporté conserve les noms techniques des colonnes, "
-                  "documentés dans METHODOLOGIE_DONNEES.md.")
+MENTION_EXPORT = ("Les deux fichiers contiennent les mêmes valeurs et conservent les noms "
+                  "techniques des colonnes, documentés dans METHODOLOGIE_DONNEES.md. "
+                  "Le CSV est au format français — point-virgule, virgule décimale.")
 
 
 def libelles(df):
@@ -205,7 +206,7 @@ entre demandes et attributions est passé de **{th.fmt(RATIO_SOCIAL_2016, 'ratio
     st.subheader("Synthèse départementale")
     tableau = synthese_departementale(ten_f, qua_f, com_f, annee, col_effort, col_triple)
     st.dataframe(tableau, width="stretch", hide_index=True, height=320)
-    th.bouton_csv(tableau, f"qce_vue_ensemble_{annee}.csv")
+    th.boutons_export(tableau, f"qce_vue_ensemble_{annee}", f"Vue d'ensemble {annee}")
     st.caption(MENTION_EXPORT)
 
     th.source(
@@ -468,7 +469,7 @@ def parc_locatif():
     st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
                "L'export contient l'intégralité du périmètre filtré.")
-    th.bouton_csv(detail, f"qce_effort_locatif_{suffixe}.csv")
+    th.boutons_export(detail, f"qce_effort_locatif_{suffixe}", f"Effort locatif {suffixe}")
     st.caption(MENTION_EXPORT)
 
     th.source(
@@ -662,7 +663,7 @@ def accession():
     st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des 200 premières lignes sur {th.fmt(len(detail))}. "
                "L'export contient l'intégralité du périmètre filtré.")
-    th.bouton_csv(detail, "qce_surface_financable.csv")
+    th.boutons_export(detail, "qce_surface_financable", "Surface finançable")
     st.caption(MENTION_EXPORT)
 
     th.source(
@@ -904,7 +905,7 @@ def parc_social():
     st.dataframe(libelles(apercu), width="stretch", hide_index=True, height=280)
     st.caption(f"Aperçu des communes à trois indicateurs. L'export contient les "
                f"{th.fmt(len(detail))} communes du périmètre filtré, complétude comprise.")
-    th.bouton_csv(detail, "qce_cumul_exclusions.csv")
+    th.boutons_export(detail, "qce_cumul_exclusions", "Cumul des exclusions")
     st.caption(MENTION_EXPORT)
 
     th.source(
@@ -1117,7 +1118,7 @@ def qualite_parc():
     st.subheader("Détail départemental")
     tableau = tableau_qualite(qua_f, con)
     st.dataframe(tableau, width="stretch", hide_index=True, height=320)
-    th.bouton_csv(qua_f, "qce_qualite_parc.csv")
+    th.boutons_export(qua_f, "qce_qualite_parc", "Qualité du parc")
     st.caption(MENTION_EXPORT)
 
     st.info(

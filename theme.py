@@ -4,6 +4,10 @@ Charte graphique, formatage des valeurs et composants d'affichage du dashboard.
 Seul module autorise a definir des couleurs : aucun hexadecimal ailleurs.
 """
 
+import io
+import re
+
+import pandas as pd
 import streamlit as st
 
 # ---------- charte QCE ----------
@@ -158,11 +162,90 @@ def mise_en_forme_graphique(fig, hauteur=420, titre=""):
     return fig
 
 
-def bouton_csv(df, nom_fichier, libelle="Télécharger le tableau filtré (CSV)"):
+# ---------- exports ----------
+# Les deux formats exportent le MEME DataFrame, colonnes techniques comprises.
+# Seul l'encodage du fichier change ; aucune valeur n'est reformatee.
+
+# Excel interdit  : \ / ? * [ ]  dans un nom de feuille, et le limite a 31 signes.
+_INTERDITS_FEUILLE = re.compile(r"[:\\/?*\[\]]")
+
+
+def nom_feuille(libelle):
+    """Rend un libelle utilisable comme nom d'onglet Excel."""
+    propre = _INTERDITS_FEUILLE.sub(" ", str(libelle)).strip()
+    return (propre[:31] or "Donnees").strip("'")
+
+
+def _classeur_xlsx(df, feuille):
+    """Serialise df en .xlsx : en-tetes en gras, filtres, volets figes, largeurs.
+
+    Les valeurs sont ecrites telles quelles — les nombres restent des nombres,
+    Excel les affiche selon la locale du poste.
+    """
+    # Import local : une absence d'openpyxl ne doit pas empecher toute
+    # l'application de demarrer, seulement ce bouton de repondre.
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    feuille = nom_feuille(feuille)
+    tampon = io.BytesIO()
+    with pd.ExcelWriter(tampon, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name=feuille, index=False)
+        ws = writer.sheets[feuille]
+
+        for cellule in ws[1]:
+            cellule.font = Font(bold=True, color="FFFFFF")
+            cellule.fill = PatternFill("solid", fgColor=BLEU.lstrip("#"))
+            cellule.alignment = Alignment(vertical="center")
+
+        ws.freeze_panes = "A2"
+        if ws.max_row >= 1 and ws.max_column >= 1:
+            ws.auto_filter.ref = ws.dimensions
+
+        # largeur : le plus long entre l'en-tete et les 200 premieres valeurs,
+        # borne a [10, 42] pour qu'aucune colonne ne devienne illisible.
+        for i, colonne in enumerate(df.columns, start=1):
+            valeurs = df[colonne].head(200)
+            large = max([len(str(colonne))] + [len(_texte(v)) for v in valeurs] or [0])
+            ws.column_dimensions[get_column_letter(i)].width = min(max(large + 3, 10), 42)
+
+    return tampon.getvalue()
+
+
+def _texte(v):
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    return str(v)
+
+
+def bouton_csv(df, nom_fichier, libelle="Télécharger (CSV)"):
+    """CSV lisible par un Excel francais : point-virgule, virgule decimale, BOM."""
     st.download_button(
         label=libelle,
-        data=df.to_csv(index=False).encode("utf-8"),
+        data=df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
         file_name=nom_fichier,
         mime="text/csv",
         width="stretch",
     )
+
+
+def bouton_excel(df, nom_fichier, feuille="Donnees", libelle="Télécharger (Excel)"):
+    """Jumeau de bouton_csv, au format .xlsx."""
+    st.download_button(
+        label=libelle,
+        data=_classeur_xlsx(df, feuille),
+        file_name=nom_fichier,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
+    )
+
+
+def boutons_export(df, base, feuille):
+    """Les deux boutons cote a cote. `base` est le nom de fichier sans extension."""
+    g, d = st.columns(2)
+    with g:
+        bouton_csv(df, f"{base}.csv")
+    with d:
+        bouton_excel(df, f"{base}.xlsx", feuille)
