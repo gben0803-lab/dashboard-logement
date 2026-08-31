@@ -57,10 +57,15 @@ pandas==3.0.5
 numpy==2.5.2
 plotly==6.9.0
 pyarrow==25.0.1
+openpyxl==3.1.5
 ```
 
 `pyarrow` est une dépendance de `streamlit`, épinglée explicitement : c'est elle qui casse en
 premier sur une version de Python non supportée.
+
+`openpyxl` sert aux boutons d'export Excel des cinq onglets. Il est importé **à l'intérieur** de
+la fonction qui construit le classeur, et non en tête de module : son absence désactiverait ces
+boutons sans empêcher l'application de démarrer.
 
 ## 5. Vérification en environnement propre — déjà effectuée
 

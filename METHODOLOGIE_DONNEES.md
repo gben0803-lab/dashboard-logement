@@ -10,7 +10,7 @@ auditées du pipeline de mission, dont la reproductibilité a été établie (27
 reproduits à l'identique — audit de reproductibilité clos le 22 août 2026, dont le rapport
 complet est conservé côté TSE Junior Études).
 
-Mis à jour le 24 août 2026.
+Mis à jour le 30 août 2026.
 
 ---
 

@@ -227,9 +227,24 @@ guide. Elle n'est utile que lorsqu'un nouveau millésime de données paraît (DV
 Le dépôt ne contient **pas** les bases sources : elles pèsent 15 Go et vivent dans le dossier de
 mission. La marche à suivre complète est dans `METHODOLOGIE_DONNEES.md` § 10.
 
+Avant tout, installer ce dont le pipeline a besoin — ce n'est pas le même jeu que
+l'application :
+
+```
+python3 -m pip install -r code/pipeline/requirements_pipeline.txt
+Rscript code/pipeline/verifier_dependances_R.R
+```
+
+Le second ne modifie rien : il liste les 15 paquets R, dit lesquels manquent et affiche la
+commande d'installation toute prête. Deux dépendances méritent l'attention parce que leur
+absence **ne provoque aucune erreur** : sans `geopandas`, quatre figures sortent sans fond de
+carte ; sans pandoc, les cartes interactives sortent non autonomes et s'ouvrent sur une page
+blanche une fois déplacées.
+
 Résumé :
 
-1. rejouer le pipeline de mission — `01_PIPELINE/run_all.sh` ;
+1. rejouer le pipeline de mission — `code/pipeline/run_all.sh`, en indiquant où sont les
+   données : `MISSION_RACINE=/chemin/vers/la/mission ./code/pipeline/run_all.sh` ;
 2. régénérer les agrégats — `python pipeline/build_dashboard_data.py`, qui exécute
    **47 contrôles de conformité au rapport et n'écrit rien si l'un échoue** ;
 3. déposer les CSV mis à jour sur GitHub, comme au § 5.
